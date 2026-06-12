@@ -1,0 +1,292 @@
+## Ralph Loop QA Review — Phase 0: Foundation & Scaffolding
+**Reviewer**: Claude (following ClaudeQA.md)
+**Handoff ID / Commit**: 34f92bf (auto-fallback) over 06ff90f (actual code delivery)
+**Date**: 2026-06-12
+**Overall Assessment**: APPROVED WITH MINORS
+
+---
+
+### Summary
+
+Phase 0 foundation work is substantially complete and of good quality. The directory
+structure, documentation suite, architecture decisions, hybrid C proof skeleton,
+MicroPython wrapper, host test harness, and automation driver are all present and
+coherent. Three issues require attention before the phase is formally gated:
+(1) a confirmed off-by-one string length bug in the C module that will produce wrong
+output on real hardware; (2) the `complete-phase` subcommand required by the stated
+Phase 0 success criteria is not implemented in ralph.sh; and (3) a false-positive risk
+in the phase-clearance detection logic that could let a rejected increment advance.
+Hardware verification (a human step) remains pending, as expected. Overall the
+foundation is solid and the project is well-positioned to advance once the above items
+are resolved.
+
+---
+
+### Phase Scope Fidelity
+
+**Criteria from PHASES.md:**
+1. Automation script runs cleanly (`status`, `complete-phase` demo).
+2. User has confirmed base firmware + dashboard works on real hardware.
+3. First hybrid extension path demonstrated.
+
+**Assessment:**
+
+- Criterion 1 — PARTIALLY MET.
+  `./tools/ralph.sh status` runs cleanly and produces correct output. OK
+  `./tools/ralph.sh help` runs cleanly and produces correct usage. OK
+  `./tools/ralph.sh complete-phase` FAILS — exits with "Error: PGR file
+  'complete-phase' not found." The subcommand is not implemented. FAIL
+
+- Criterion 2 — PENDING (human step, expected). PHASES.md is appropriately
+  marked [ ] for this item. No scope issue; this is acknowledged.
+
+- Criterion 3 — SUBSTANTIALLY MET (with code bug noted below). The C module,
+  MicroPython wrapper, and host harness are all present. Host tests pass.
+  C path requires a device flash (human step). OK minus the string bug.
+
+**Scope creep:** None observed. The increment stayed strictly within Phase 0 goals.
+No parser, VM, graphing, or other future-phase code was introduced. Good discipline.
+
+---
+
+### Correctness & Robustness
+
+**Blockers:**
+
+- B-1: Off-by-one string length in `src/math/picocalc_math.c:21`.
+  The code reads:
+    return mp_obj_new_str("SuperCalc.OG-hybrid-proof-0.2", 28);
+  "SuperCalc.OG-hybrid-proof-0.2" is 29 bytes (confirmed by character count).
+  `mp_obj_new_str(data, len)` in MicroPython uses the explicit length, not
+  null-termination. On real hardware, `picocalc_math.version()` will return
+  "SuperCalc.OG-hybrid-proof-0." — the final character '2' will be missing.
+  The host test harness does NOT catch this because it exercises only the Python
+  fallback path (which returns "pure-python-fallback-0.2"). This will be
+  discovered the moment the module is first tested on device.
+  FIX REQUIRED: Change `28` to `29`, or replace with
+    return mp_obj_new_str("SuperCalc.OG-hybrid-proof-0.2",
+                          strlen("SuperCalc.OG-hybrid-proof-0.2"));
+  to make all future string returns robust against edits.
+
+**Major Issues:**
+
+- M-1: `complete-phase` subcommand missing from ralph.sh.
+  PGR.md (Tool Usage section) lists `complete-phase`, `set-phase`,
+  `generate-handoff`, `record-hardware-verification`, and `list-handoffs` as
+  "useful subcommands" of ralph.sh. PHASES.md Phase 0 success criterion explicitly
+  states "Automation script runs cleanly (`status`, `complete-phase` demo)".
+  None of these subcommands beyond `status` and `help` are implemented in ralph.sh.
+  Calling `./tools/ralph.sh complete-phase` fails with a misleading error.
+  FIX REQUIRED: Either (a) implement a `complete-phase` subcommand that generates a
+  timestamped handoff, updates LOOP_STATE.json, and prints the review prompt — OR
+  (b) update PHASES.md and PGR.md to correctly describe what the tool actually does
+  and reformulate the success criterion accordingly. Option (a) is preferred because
+  it aligns the tool with the documented implementer workflow.
+
+- M-2: False-positive clearance detection in `ralph.sh` (phase_cleared function).
+  The function uses:
+    grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE|CLEARED TO ADVANCE|APPROVED"
+  The bare term `APPROVED` matches text that can appear in a non-clearance review.
+  For example, a review with "Overall Assessment: APPROVED WITH MINORS" in the
+  header but "NEEDS WORK - DO NOT ADVANCE" as the final verdict would incorrectly
+  match and advance the phase. This undermines the quality gate.
+  FIX REQUIRED: Remove `APPROVED` from the grep pattern. The formal clearance
+  signals are already fully specified by `CLEARED TO CONTINUE` and
+  `PHASE COMPLETE - CLEARED TO ADVANCE`. The bare `APPROVED` adds no value and
+  introduces false-positive risk.
+
+**Minor / Observations:**
+
+- m-1: The latest commit (34f92bf) carries the message "Grok implementer work
+  (auto-fallback commit)". This is the ralph.sh safety net that fires when Grok
+  leaves uncommitted files. The commit only contained two handoff files. Functionally
+  harmless, but it is a process signal that Grok did not commit cleanly itself.
+
+- m-2: The previous automated Claude QA result
+  (handoffs/phase-0-20260612-154921-claude-review.md) contains only:
+  "[ERROR] Local Claude review timed out."
+  The full loop did not produce a real prior review. The implementer's claim
+  "fixes per Claude review" in the latest handoff message is therefore unverifiable.
+  No actionable fixes could have been applied to a timed-out review. This is a loop
+  health observation, not a code defect.
+
+- m-3: `tools/build_supercalc.sh` opens with the message "Building custom MicroPython
+  UF2 with our C modules" but currently only touches a stamp file and exits. The
+  misleading opening message should clarify its stub status upfront. The inline
+  comments are accurate and useful; only the opening echo is misleading.
+
+- m-4: `mp_obj_new_float` precision dependency: the C functions correctly declare
+  `double` for local variables, but whether MicroPython stores and returns double
+  precision depends on `MICROPY_FLOAT_IMPL_DOUBLE` in the base firmware config.
+  The LofiFren Pico 2 W build is expected to have this set, but it is not explicitly
+  confirmed or documented in BRINGUP.md. Worth a one-line note before Phase 1
+  numeric kernel work begins.
+
+---
+
+### Architecture & Hybrid Design
+
+The hybrid boundary is clean and correct. The C module uses the standard
+`mp_obj_get_float` / `mp_obj_new_float` / `mp_raise_ValueError` API — exactly right
+for the USER_C_MODULES integration path. `micropython.cmake` is minimal and follows
+the LofiFren/zenodante interface library pattern precisely.
+
+`hybrid.py` wraps the C module with a try/except ImportError, giving transparent
+fallback on host and full C acceleration on device. The boundary comment is accurate.
+
+Directory structure (src/ for C, mp/ for MicroPython) is properly established with
+.gitkeeps for all planned subsystems: src/core/ (VM), src/plot/ (sampling engine),
+mp/ui/, mp/lang/, mp/apps/. No concerns.
+
+---
+
+### HP Programmable Spirit
+
+Not in scope for Phase 0 (no language, stack, or evaluator exists yet).
+
+HP_INSPIRATION.md demonstrates genuine understanding of the HP-41 and HP-48/RPL
+heritage. The stated priorities (programmability first, stack as first-class,
+first-class programs, units, catalog/discoverability) are well-aligned with the HP
+spirit. The decision to use an RPL-inspired language executed by a C VM is the right
+call. No concerns.
+
+---
+
+### Graphing & UI
+
+Not in scope for Phase 0. No observations.
+
+---
+
+### Performance & Resources
+
+Not directly testable at Phase 0.
+
+- Double-precision baseline per DECISIONS.md is correct for RP2350 with FPU.
+  The C code correctly uses `double` in local variables.
+- The `<math.h>` sin and sqrt will hit the RP2350 hardware FPU when compiled for
+  target. This is the right design for a hot-path proof.
+- Memory discipline is documented but untestable at this stage. No concerns.
+
+---
+
+### Testing & Hardware Verification
+
+Host tests: `python3 tests/test_hybrid.py` passes cleanly — all 5 tests pass.
+Coverage: version string format, add (int/float/precision), sin (zero/pi_2/general),
+sqrt (zero/perfect square/general/domain error), HAS_C_MATH flag.
+Precision tolerance (EPS=1e-12) is appropriate. The test correctly documents that
+the C path requires a device build.
+
+On-device verification: Not yet performed — pending human hardware bring-up.
+This is documented and expected. However: once device testing begins, the string
+length bug (B-1) will manifest on the very first call to `picocalc_math.version()`.
+
+Gap: No test coverage for the C module directly (only the fallback path). Acceptable
+for Phase 0, but Phase 1 must add on-device smoke tests alongside the host tests.
+
+---
+
+### Documentation & Process
+
+Strengths:
+- DECISIONS.md is comprehensive. The Phase 0 Hybrid Proof entry is particularly
+  good — it names the exact deliverables, explains the rationale for each, and
+  explicitly marks what is deferred.
+- PHASES.md clearly marks completed vs. pending items with checkboxes.
+- ARCHITECTURE.md, HP_INSPIRATION.md, BRINGUP.md, and INITIAL_STUBS.md are all
+  present and well-written.
+- PGR.md and ClaudeQA.md establish a rigorous, fair process.
+- Stale references to `ralph_loop.py` and `ralph_orchestrator.py` exist ONLY in the
+  historical handoff archive (expected — handoffs are snapshots). The live docs and
+  scripts on disk have been updated to reference `ralph.sh`. No action needed.
+
+Issues:
+- PGR.md Tool Usage section lists subcommands that do not exist in ralph.sh.
+  This is the documentation side of M-1.
+- PHASES.md success criterion lists `complete-phase` which does not work.
+  This is the criteria side of M-1.
+
+---
+
+### Risks & Technical Debt
+
+1. String length fragility (B-1): The off-by-one pattern in the one C function that
+   returns a string literal is a risk class if it propagates to Phase 1 where many
+   more C functions will be added. Fixing with `strlen()` at the source establishes
+   the correct pattern for all future additions.
+
+2. False-positive loop advancement (M-2): An incorrectly advancing phase means the
+   quality gate fails silently. The loop's value depends on this being correct.
+   Must be fixed before the loop runs at scale.
+
+3. Device validation gap: All C code correctness claims are unverified on real
+   hardware. Phase 1 must establish a device smoke test workflow before new C
+   numeric functions are declared "working".
+
+4. MICROPY_FLOAT_IMPL_DOUBLE unconfirmed: If the base firmware uses single-precision,
+   the double-precision baseline silently fails in Phase 1. Low-probability risk
+   (LofiFren for RP2350 should have double enabled) but worth explicit confirmation.
+
+5. Build pipeline unexercised: The end-to-end build (clone base + Docker + UF2) has
+   not been run. The instructions are correct and well-documented, but until the user
+   executes them at least once, there may be base-port-specific surprises. This is
+   the expected human bring-up step.
+
+---
+
+### Recommendations & Specific Action Items for Implementer
+
+Must fix before next handoff:
+
+1. [B-1 — Blocker] Fix string length in src/math/picocalc_math.c line 21.
+   Change the hardcoded `28` to `29`, or use `strlen(...)` to make all future
+   string return calls safe. Prefer strlen() to prevent recurrence.
+
+2. [M-1 — Major] Add `complete-phase` subcommand to ralph.sh, OR update PHASES.md
+   and PGR.md to accurately describe what the tool does.
+   Recommended: implement `complete-phase` as: check git is clean, generate
+   timestamped handoff file in handoffs/, update LOOP_STATE.json status to
+   "awaiting_qa", print a ready-to-paste prompt for Claude QA. This gives the
+   implementer a clean "I'm done with this increment" command that doesn't require
+   running the full Grok+Claude automation loop.
+
+3. [M-2 — Major] Fix phase_cleared() in ralph.sh. Remove `APPROVED` from the grep
+   pattern. The two formal clearance strings (`CLEARED TO CONTINUE` and
+   `PHASE COMPLETE - CLEARED TO ADVANCE`) are sufficient and unambiguous.
+
+Should address soon (before Phase 1 work is meaningful):
+
+4. [m-4] Confirm MICROPY_FLOAT_IMPL_DOUBLE in LofiFren Pico 2 W build and add a
+   one-line note to BRINGUP.md so future contributors know the assumption.
+
+5. [m-3] Fix opening echo in build_supercalc.sh to clearly identify it as a stub
+   documenting the build process, not a working build script.
+
+Can defer:
+
+6. Update PGR.md subcommand list to match actual ralph.sh after M-1 is resolved.
+
+7. Add a device smoke test checklist file (e.g., tests/device_smoke_checklist.md)
+   to give the human hardware verification step a concrete, repeatable form.
+
+---
+
+### Final Verdict
+
+Phase 0 has one Blocker (off-by-one string length in the only C code delivered) and
+two Major issues (complete-phase subcommand undocumented/missing, false-positive
+clearance grep). These must be resolved and re-submitted. Hardware verification
+(human step) remains pending and should proceed after code fixes are in place.
+
+Return for fixes on the following before re-handoff:
+  - B-1: Fix mp_obj_new_str length in src/math/picocalc_math.c:21
+  - M-1: Implement complete-phase subcommand in ralph.sh (or update docs/criteria)
+  - M-2: Fix phase_cleared() grep pattern to remove bare APPROVED
+
+NEEDS WORK - DO NOT ADVANCE
+
+---
+One-line summary: Phase 0 foundation is solid but blocked by a string length bug in
+the only C code, a missing required subcommand in ralph.sh, and a false-positive in
+the loop clearance logic — fix these three items and re-submit.
