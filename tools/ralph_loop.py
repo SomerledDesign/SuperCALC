@@ -3,8 +3,8 @@
 ralph_loop.py — Unattended Ralph Loop Automation Tool
 
 This script manages the phase state, enforces process discipline,
-generates self-contained handoff packages for Claude (the QA reviewer),
-and helps the implementer (Grok) move through the loop cleanly.
+generates self-contained handoff packages, and invokes the **local Claude**
+(claude CLI / Claude Code installed on this computer) as the independent QA reviewer.
 
 Usage examples:
   python tools/ralph_loop.py status
@@ -14,6 +14,14 @@ Usage examples:
   python tools/ralph_loop.py record-hardware-verification "Graphing of 3 functions with trace works on real hardware"
 
 Run from the SuperCalc.OG project root.
+
+When complete-phase runs, it will:
+- Generate the rich handoff file (with full PGR + ClaudeQA embedded)
+- Automatically call your local `claude` CLI (non-interactively via --print)
+- Capture the real independent Claude review and save it
+- Update LOOP_STATE
+
+Use --no-local-claude to skip the auto-invocation if needed.
 """
 
 import argparse
@@ -157,21 +165,43 @@ def cmd_complete_phase(args):
     save_state(state)
 
     print(f"\n✅ Handoff generated: {handoff_path}")
-    print("\n--- NEXT STEPS (copy the block below) ---")
-    print(f"1. Review the handoff file.")
-    print(f"2. Commit the changes (suggested message below).")
-    print(f"3. Paste the 'READY PROMPT FOR CLAUDE' section into your Claude session.")
-    print("\nSuggested commit command:")
-    msg = args.message or f"Phase {current}: increment complete - awaiting Claude QA"
-    print(f'  git add -A && git commit -m "{msg}"')
-    print(f'\nHandoff file also staged for the commit in many cases.')
 
-    # Print the ready prompt
-    print("\n" + "="*70)
-    print("READY PROMPT FOR CLAUDE (copy everything below the line)")
-    print("="*70 + "\n")
-    prompt = build_claude_prompt(state, current, handoff_path, args.message)
-    print(prompt)
+    claude_prompt = build_claude_prompt(state, current, handoff_path, args.message)
+
+    if args.no_local_claude:
+        print("\n--no-local-claude specified. Skipping automatic call to local Claude.")
+        print("\n--- NEXT STEPS ---")
+        print("1. Commit the changes (suggested message below).")
+        print("2. Manually feed the prompt + handoff file to your local claude CLI or claude.ai app.")
+        msg = args.message or f"Phase {current}: increment complete - awaiting Claude QA"
+        print(f'\nSuggested commit: git add -A && git commit -m "{msg}"')
+        print("\n" + "="*70)
+        print("READY PROMPT FOR CLAUDE (copy everything below the line)")
+        print("="*70 + "\n")
+        print(claude_prompt)
+    else:
+        print("\nInvoking local Claude (your installed claude CLI) for independent review...")
+        print("This may take a moment while Claude reads the full handoff package and applies ClaudeQA.md rules.")
+        claude_review = call_local_claude(claude_prompt)
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+        review_path = HANDOFF_DIR / f"phase-{current}-{timestamp}-claude-review.md"
+        review_path.write_text(claude_review)
+
+        print(f"\n✅ Independent review from local Claude saved to: {review_path}")
+        print("\n" + "="*70)
+        print("REVIEW FROM LOCAL CLAUDE (following ClaudeQA.md exactly)")
+        print("="*70 + "\n")
+        print(claude_review)
+        print("\n" + "="*70)
+        print("END OF CLAUDE REVIEW")
+        print("="*70)
+
+        print("\n--- NEXT STEPS ---")
+        msg = args.message or f"Phase {current}: increment complete - awaiting Claude QA"
+        print(f"1. Commit the changes: git add -A && git commit -m \"{msg}\"")
+        print("2. Address any Blockers/Majors from the review above.")
+        print("3. When ready for the next increment or re-review, run complete-phase again (or generate-handoff).")
 
 def create_handoff(state: dict, phase: int, message: str) -> Path:
     HANDOFF_DIR.mkdir(parents=True, exist_ok=True)
@@ -294,6 +324,34 @@ def cmd_generate_handoff(args):
     path = create_handoff(state, phase, "Regenerated handoff (manual)")
     print(f"Handoff regenerated: {path}")
 
+def call_local_claude(prompt: str) -> str:
+    """Invoke the local claude CLI (Claude Code) non-interactively.
+    
+    Uses --print for one-shot response + --no-session-persistence for clean automation.
+    The prompt should instruct Claude to read the generated handoff file (which contains
+    full embedded copies of PGR.md, ClaudeQA.md, phase goals, git state, etc.).
+    """
+    try:
+        result = subprocess.run(
+            ["claude", "--print", "--no-session-persistence"],
+            input=prompt,
+            capture_output=True,
+            text=True,
+            cwd=PROJECT_ROOT,
+            timeout=180  # allow time for thoughtful review
+        )
+        if result.returncode != 0:
+            err = result.stderr.strip() or "unknown error"
+            return f"[ERROR from local claude CLI (exit {result.returncode})]\n{err}"
+        return result.stdout.strip()
+    except FileNotFoundError:
+        return "[ERROR] 'claude' command not found in PATH. Is Claude Code installed?"
+    except subprocess.TimeoutExpired:
+        return "[ERROR] Local Claude review timed out."
+    except Exception as e:
+        return f"[ERROR invoking local claude CLI]: {e}"
+
+
 def cmd_record_hardware(args):
     state = load_state()
     note = " ".join(args.note) if args.note else "Hardware verification recorded"
@@ -318,11 +376,13 @@ def main():
     p_set.set_defaults(func=cmd_set_phase)
 
     # complete-phase
-    p_complete = sub.add_parser("complete-phase", help="Mark current work complete, generate handoff for Claude, update state")
+    p_complete = sub.add_parser("complete-phase", help="Mark current work complete, generate handoff, invoke local Claude for independent QA review, update state")
     p_complete.add_argument("--message", "-m", type=str, default=None,
                             help="Short description of what was delivered in this increment")
     p_complete.add_argument("--force", action="store_true",
                             help="Proceed even if git tree is not clean")
+    p_complete.add_argument("--no-local-claude", action="store_true",
+                            help="Generate handoff + prompt but skip automatically calling the local claude CLI")
     p_complete.set_defaults(func=cmd_complete_phase)
 
     # generate-handoff (manual)

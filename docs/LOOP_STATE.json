@@ -1,15 +1,19 @@
 {
   "current_phase": 0,
-  "status": "in_progress",
+  "status": "awaiting_qa",
   "last_completed_phase": -1,
   "phase_history": [
     {
       "phase": 0,
       "started": "2026-06-12",
-      "status": "in_progress",
-      "description": "Foundation & Scaffolding + Unattended Loop setup"
+      "status": "awaiting_qa",
+      "description": "Foundation & Scaffolding + Unattended Loop setup",
+      "last_update": "2026-06-12",
+      "notes": [
+        "Handoff generated: phase-0-20260612-150759-review-request.md"
+      ]
     }
   ],
-  "last_handoff": null,
+  "last_handoff": "handoffs/phase-0-20260612-150759-review-request.md",
   "notes": "Unattended Ralph Loop initialized. Git local repo active."
 }

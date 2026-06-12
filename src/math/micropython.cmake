@@ -1,0 +1,5 @@
+# CMake for picocalc_math user C module (SuperCalc.OG)
+add_library(usermod_picocalc_math INTERFACE)
+target_sources(usermod_picocalc_math INTERFACE ${CMAKE_CURRENT_LIST_DIR}/picocalc_math.c)
+target_include_directories(usermod_picocalc_math INTERFACE ${CMAKE_CURRENT_LIST_DIR})
+target_link_libraries(usermod INTERFACE usermod_picocalc_math)
