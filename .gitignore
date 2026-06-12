@@ -1,0 +1,53 @@
+# GraphingCalc - PicoCalc Project
+
+# Build artifacts
+build/
+*.uf2
+*.o
+*.elf
+*.map
+firmware/*.uf2
+firmware/build/
+
+# Python / MicroPython
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+
+# Thonny / IDE
+.thonny/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary / test
+*.tmp
+*.log
+tests/output/
+*.raw
+
+# SD card images or large data (user can add their own)
+*.img
+*.bin
+
+# Dashboard / local tools temp
+tools/dashboard_temp/
+*.diff
+
+# C build (Pico SDK style)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+
+# User data that shouldn't be committed (examples can be committed)
+examples/user_private/
+programs/my_secrets/
