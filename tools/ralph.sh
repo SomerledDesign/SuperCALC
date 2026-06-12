@@ -92,8 +92,9 @@ PYEOF
       echo "════════════════════════════════════════════════════════"
 
       # 1. Git must be clean (or only untracked we intend to leave)
+      # Note: use || true after grep to be robust under set -euo pipefail (grep exits 1 on 0 matches)
       local dirty
-      dirty=$(git status --porcelain 2>/dev/null | grep -E '^(M|A|D|R|C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' | wc -l | tr -d ' ')
+      dirty=$(git status --porcelain 2>/dev/null | grep -E '^(M|A|D|R|C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' || true | wc -l | tr -d ' ')
       if [[ "$dirty" -gt 0 ]]; then
         fail "Git working tree not clean. Commit or stash changes before complete-phase."
         echo "Dirty (excluding handoffs/ + temps):"
