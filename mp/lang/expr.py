@@ -1,5 +1,6 @@
 """
 SuperCalc.OG — Phase 1 core expression system (infix + RPN) + stack + variables.
+Phase 2 extends with first-class programs (see mp.lang.prog) while reusing the same parsers/eval.
 
 MPy layer (rapid iteration per DECISIONS): 
 - infix parser (shunting-yard lite) -> RPN token stream
@@ -17,6 +18,8 @@ Entry point notes (see m-3 in Phase 1 inc1 QA):
   The C rpn_eval stack machine is exercised by eval_infix (and directly in tests/ on device).
   Future phases (VM) should not assume eval_rpn() itself is the C-accelerated batch path.
 
+Phase 2 note: programs (mp.lang.prog.Program) integrate via env (sto/rcl) and eval_rpn (program bodies execute inline on shared stack for RPL semantics).
+
 Usage (host or device after flash):
   from mp.lang.expr import eval_infix, eval_rpn, to_rpn
   print(eval_infix("2 + 3 * sin(pi/2)"))   # uses predefined 'pi'
@@ -28,8 +31,12 @@ Usage (host or device after flash):
 import math as _m
 from mp.lib.hybrid import (
     HAS_C_MATH, rpn_eval as _hybrid_rpn,
-    sin, cos, tan, sqrt, log, exp, fabs, add, sub, mul, div, pow as hpow
+    sin, cos, tan, sqrt, log, log10, exp, fabs, add, sub, mul, div, pow as hpow,
+    asin, acos, atan, atan2
 )
+
+# Phase 2 program integration (first-class RPL objects)
+from mp.lang.prog import Program, is_program, EVAL_ALIASES
 
 # Predefined constants (RCL-able; can be shadowed by user env)
 _PREDEFS = {
@@ -50,8 +57,8 @@ def _resolve_var(name, env):
 
 # --- Infix to RPN (small shunting-yard supporting + - * / ^ , parens, unary-, funcs) ---
 # Tokens: numbers become float, idents become ('var', name), calls/ops as str op.
-# Funcs supported: sin cos tan sqrt log exp abs (written sin(...) etc)
-_FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "exp", "abs", "fabs"}
+# Funcs supported: sin cos tan sqrt log exp abs + Phase 2 scientific (log10, asin, acos, atan, atan2)
+_FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "log10", "exp", "abs", "fabs", "asin", "acos", "atan", "atan2"}
 
 def to_rpn(infix: str):
     """
@@ -136,7 +143,13 @@ def to_rpn(infix: str):
         if c in "+-*/^":
             op = c
             if c == "-" and prev_was_op_or_start:
-                op = "neg"  # unary
+                op = "neg"  # unary minus
+            elif c == "+" and prev_was_op_or_start:
+                # unary plus: explicit positive sign — treat as no-op (skip pushing binary +)
+                # This closes the Phase 1 "unary + not handled" gap noted in DECISIONS.
+                i += 1
+                # do not flip prev_was; the next token decides (number or ( or ident)
+                continue
             push_op(op)
             i += 1
             prev_was_op_or_start = True
@@ -184,16 +197,28 @@ def eval_infix(infix: str, env=None):
 # or use flat:  [ val, "sto", "x" ]   or [ "rcl", "x", 2, "*" ]
 # We process sequentially using hybrid leafs for numeric, special case sto/rcl.
 
-def eval_rpn(tokens, env=None):
+def _resolve_or_exec(name_or_val, env, stack):
+    """Helper for Phase 2: if name resolves (or direct val is) a Program, exec its body inline on shared stack+env.
+    Otherwise return the resolved value for normal push.
     """
-    RPN with full stack + variables.
-    env: dict mutated for sto (and used for rcl). If None, fresh dict.
-    Returns final top-of-stack value (after any trailing sto etc).
-    Also returns env for caller if needed (side effect on passed or new).
+    if isinstance(name_or_val, Program):
+        _execute_rpn_body(name_or_val.body, stack, env)
+        return None  # executed, nothing to push
+    if isinstance(name_or_val, (str, tuple)) and isinstance(name_or_val, tuple) and name_or_val[0] == "var":
+        val = _resolve_var(name_or_val[1], env)
+    else:
+        val = name_or_val
+    if is_program(val):
+        _execute_rpn_body(val.body, stack, env)
+        return None
+    return val
+
+
+def _execute_rpn_body(tokens, stack, env):
+    """Shared RPN execution body (used by eval_rpn top-level and by Program inline exec).
+    Mutates stack and env in place. Returns the final top value (or raises).
+    This enables RPL-style "programs run on the current stack" without fresh stack per call.
     """
-    if env is None:
-        env = {}
-    stack = []
     i = 0
     n = len(tokens)
     while i < n:
@@ -203,7 +228,13 @@ def eval_rpn(tokens, env=None):
             i += 1
             continue
         if isinstance(tok, tuple) and tok[0] == "var":
-            stack.append(_resolve_var(tok[1], env))
+            val = _resolve_or_exec(tok, env, stack)
+            if val is not None:
+                stack.append(val)
+            i += 1
+            continue
+        if is_program(tok):
+            stack.append(tok)  # push Program as first-class data value (sto, pass, rcl target etc)
             i += 1
             continue
         if not isinstance(tok, str):
@@ -236,12 +267,49 @@ def eval_rpn(tokens, env=None):
             else:
                 raise ValueError("rcl target must be name")
             val = _resolve_var(name, env)
+            # If the recalled thing is a program, executing the *name* as word auto-runs it (RPL feel).
+            # But bare RCL of a prog name should still push the object so it can be manipulated as data.
+            # Compromise for inc1: RCL always pushes the raw value (program object or number).
+            # "Calling" happens when the name appears directly as an op/word in the stream (see var resolve path).
             stack.append(val)
             i += 2
             continue
+        # explicit EVAL / call of a program object from the stack (first-class support)
+        if op in EVAL_ALIASES:
+            if not stack:
+                raise ValueError("rpn stack underflow for eval")
+            p = stack.pop()
+            if is_program(p):
+                _execute_rpn_body(p.body, stack, env)
+            else:
+                # allow eval of a name too: look up and exec if prog
+                if isinstance(p, str):
+                    p = env.get(p)
+                if is_program(p):
+                    _execute_rpn_body(p.body, stack, env)
+                else:
+                    raise ValueError("eval target is not a program")
+            i += 1
+            continue
+        # RPL word call: bare string not a builtin op may be a program name in env (first-class call by word)
+        # If resolves to a program, execute inline; otherwise fall through to unknown (or numeric op table).
+        if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall") and op not in EVAL_ALIASES:
+            if env and op in env and is_program(env[op]):
+                _execute_rpn_body(env[op].body, stack, env)
+                i += 1
+                continue
+            # also allow as var token style resolve (defensive)
+            try:
+                val = _resolve_var(op, env)
+                if is_program(val):
+                    _execute_rpn_body(val.body, stack, env)
+                    i += 1
+                    continue
+            except Exception:
+                pass
         # numeric or stack op: delegate as much as possible to hybrid (C)
         # For single op we feed a  mini rpn list
-        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "exp", "fabs", "abs", "neg", "chs", "dup", "drop", "swap", "over"):
+        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over"):
             # build a 1 or 2 (or 0 for dup etc) arg mini program from current stack state
             # simplest: use leaf calls for numeric, direct manip for stack
             if op in ("dup", "drop", "swap", "over"):
@@ -297,6 +365,23 @@ def eval_rpn(tokens, env=None):
                 if not stack: raise ValueError("rpn stack underflow")
                 a = stack.pop()
                 stack.append(tan(a))
+            elif op == "asin":
+                if not stack: raise ValueError("rpn stack underflow")
+                a = stack.pop()
+                stack.append(asin(a))
+            elif op == "acos":
+                if not stack: raise ValueError("rpn stack underflow")
+                a = stack.pop()
+                stack.append(acos(a))
+            elif op == "atan":
+                if not stack: raise ValueError("rpn stack underflow")
+                a = stack.pop()
+                stack.append(atan(a))
+            elif op == "atan2":
+                if len(stack) < 2: raise ValueError("rpn stack underflow")
+                b = stack.pop()
+                a = stack.pop()
+                stack.append(atan2(a, b))
             elif op == "sqrt":
                 if not stack: raise ValueError("rpn stack underflow")
                 a = stack.pop()
@@ -305,6 +390,10 @@ def eval_rpn(tokens, env=None):
                 if not stack: raise ValueError("rpn stack underflow")
                 a = stack.pop()
                 stack.append(log(a))
+            elif op == "log10":
+                if not stack: raise ValueError("rpn stack underflow")
+                a = stack.pop()
+                stack.append(log10(a))
             elif op == "exp":
                 if not stack: raise ValueError("rpn stack underflow")
                 a = stack.pop()
@@ -324,6 +413,23 @@ def eval_rpn(tokens, env=None):
         # unknown at top level
         raise ValueError("unknown rpn op or token: " + str(op))
     if not stack:
+        return None  # allow side-effect-only program bodies (RPL); top-level eval_rpn will enforce non-empty result
+    return stack[-1]
+
+
+def eval_rpn(tokens, env=None):
+    """
+    RPN with full stack + variables.
+    env: dict mutated for sto (and used for rcl). If None, fresh dict.
+    Returns final top-of-stack value (after any trailing sto etc).
+    Phase 2: if tokens or resolved vars contain Program objects, their bodies execute
+    inline on this stack+env (RPL first-class program semantics).
+    """
+    if env is None:
+        env = {}
+    stack = []
+    _execute_rpn_body(tokens, stack, env)
+    if not stack:
         raise ValueError("rpn empty stack at end")
     return stack[-1]
 
@@ -332,7 +438,8 @@ def eval_rpn_str(rpn_text: str, env=None):
     """Accepts space separated like '2 3 + 4 *' or with names '3.14 sto pi rcl pi 2 *'."""
     toks = []
     for part in rpn_text.strip().split():
-        if part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs") or part in _FUNC_NAMES or part in "+-*/^":
+        if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2") or
+            part in EVAL_ALIASES or part in _FUNC_NAMES or part in "+-*/^"):
             toks.append(part)
         else:
             # number or bare var? treat bare idents after sto/rcl as names, but for general, if not num try var later
@@ -342,4 +449,4 @@ def eval_rpn_str(rpn_text: str, env=None):
                 toks.append(("var", part))  # will resolve or be used by sto/rcl
     return eval_rpn(toks, env)
 
-__all__ = ["to_rpn", "eval_infix", "eval_rpn", "eval_rpn_str", "HAS_C_MATH"]
+__all__ = ["to_rpn", "eval_infix", "eval_rpn", "eval_rpn_str", "HAS_C_MATH", "Program"]  # Program re-export for convenience (Phase 2)

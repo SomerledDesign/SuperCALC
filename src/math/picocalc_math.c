@@ -1,12 +1,12 @@
-// picocalc_math.c — Hybrid math kernel + expr for SuperCalc.OG Phase 1+
+// picocalc_math.c — Hybrid math kernel + expr for SuperCalc.OG Phase 1+ (Phase 2 math surface)
 // Thin C extension boundary: MPy calls these for speed/accuracy on hot paths.
 // Built via USER_C_MODULES + micropython.cmake (LofiFren/zenodante-style base).
 //
 // When the custom UF2 is flashed, `import picocalc_math` succeeds from device REPL
 // and calls execute in native code (RP2350 FPU for doubles).
 //
-// Provides: basic ops, trig/log/exp/pow, and rpn_eval (C stack machine for expressions).
-// MPy side owns infix->RPN parsing and variable/env; C owns numeric + RPN dispatch.
+// Provides: basic ops, trig/log/exp/pow + log10/asin/acos/atan/atan2, abs alias, and rpn_eval (C stack machine for expressions).
+// MPy side owns infix->RPN parsing, variable/env, and Phase 2 program objects; C owns numeric + RPN dispatch.
 //
 // Offline-first, 320x320-aware, double baseline per DECISIONS.md.
 
@@ -19,7 +19,7 @@
 // --- Thin documented API (subject to small evolution in Phase 1) ---
 
 STATIC mp_obj_t picocalc_math_version(void) {
-    const char *v = "SuperCalc.OG-hybrid-proof-0.3";
+    const char *v = "SuperCalc.OG-0.5-phase2";
     return mp_obj_new_str(v, strlen(v));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(picocalc_math_version_obj, picocalc_math_version);
@@ -102,6 +102,46 @@ STATIC mp_obj_t picocalc_math_log(mp_obj_t x_in) {
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_log_obj, picocalc_math_log);
 
+STATIC mp_obj_t picocalc_math_log10(mp_obj_t x_in) {
+    double x = mp_obj_get_float(x_in);
+    if (x <= 0.0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("log10 of non-positive"));
+    }
+    return mp_obj_new_float(log10(x));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_log10_obj, picocalc_math_log10);
+
+STATIC mp_obj_t picocalc_math_asin(mp_obj_t x_in) {
+    double x = mp_obj_get_float(x_in);
+    if (x < -1.0 || x > 1.0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("asin domain error"));
+    }
+    return mp_obj_new_float(asin(x));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_asin_obj, picocalc_math_asin);
+
+STATIC mp_obj_t picocalc_math_acos(mp_obj_t x_in) {
+    double x = mp_obj_get_float(x_in);
+    if (x < -1.0 || x > 1.0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("acos domain error"));
+    }
+    return mp_obj_new_float(acos(x));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_acos_obj, picocalc_math_acos);
+
+STATIC mp_obj_t picocalc_math_atan(mp_obj_t x_in) {
+    double x = mp_obj_get_float(x_in);
+    return mp_obj_new_float(atan(x));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_atan_obj, picocalc_math_atan);
+
+STATIC mp_obj_t picocalc_math_atan2(mp_obj_t y_in, mp_obj_t x_in) {
+    double y = mp_obj_get_float(y_in);
+    double x = mp_obj_get_float(x_in);
+    return mp_obj_new_float(atan2(y, x));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_2(picocalc_math_atan2_obj, picocalc_math_atan2);
+
 STATIC mp_obj_t picocalc_math_pow(mp_obj_t x_in, mp_obj_t y_in) {
     double x = mp_obj_get_float(x_in);
     double y = mp_obj_get_float(y_in);
@@ -117,8 +157,8 @@ STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_fabs_obj, picocalc_math_fabs);
 
 // rpn_eval(tokens) — C kernel for expression system (Phase 1).
 // tokens: iterable of numbers (int/float) and op strings.
-// Supported: binary + - * / pow ^ ; unary sin cos tan sqrt log exp fabs neg ;
-// stack: dup drop swap over ; result is top of stack at end.
+// Supported: binary + - * / pow ^ ; unary sin cos tan sqrt log log10 exp fabs abs neg ;
+// Phase 2: asin acos atan atan2 ; stack: dup drop swap over ; result is top of stack at end.
 // Thin: MPy (or future compiler) produces token stream; C does fast stack eval with FPU doubles.
 // Errors on underflow, unknown op, domain (via the leaf funcs).
 #define RPN_STACK_MAX 32
@@ -180,6 +220,25 @@ STATIC mp_obj_t picocalc_math_rpn_eval(mp_obj_t tokens_in) {
             if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
             double a = stack[--sp];
             stack[sp++] = tan(a);
+        } else if (strcmp(op, "asin") == 0) {
+            if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
+            double a = stack[--sp];
+            if (a < -1.0 || a > 1.0) mp_raise_ValueError(MP_ERROR_TEXT("asin domain error"));
+            stack[sp++] = asin(a);
+        } else if (strcmp(op, "acos") == 0) {
+            if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
+            double a = stack[--sp];
+            if (a < -1.0 || a > 1.0) mp_raise_ValueError(MP_ERROR_TEXT("acos domain error"));
+            stack[sp++] = acos(a);
+        } else if (strcmp(op, "atan") == 0) {
+            if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
+            double a = stack[--sp];
+            stack[sp++] = atan(a);
+        } else if (strcmp(op, "atan2") == 0) {
+            if (sp < 2) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
+            double b = stack[--sp];
+            double a = stack[--sp];
+            stack[sp++] = atan2(a, b);
         } else if (strcmp(op, "sqrt") == 0) {
             if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
             double a = stack[--sp];
@@ -190,6 +249,11 @@ STATIC mp_obj_t picocalc_math_rpn_eval(mp_obj_t tokens_in) {
             double a = stack[--sp];
             if (a <= 0.0) mp_raise_ValueError(MP_ERROR_TEXT("log of non-positive"));
             stack[sp++] = log(a);
+        } else if (strcmp(op, "log10") == 0) {
+            if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
+            double a = stack[--sp];
+            if (a <= 0.0) mp_raise_ValueError(MP_ERROR_TEXT("log10 of non-positive"));
+            stack[sp++] = log10(a);
         } else if (strcmp(op, "exp") == 0) {
             if (sp < 1) mp_raise_ValueError(MP_ERROR_TEXT("rpn stack underflow"));
             double a = stack[--sp];
@@ -244,8 +308,14 @@ STATIC const mp_rom_map_elem_t picocalc_math_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_sqrt),    MP_ROM_PTR(&picocalc_math_sqrt_obj) },
     { MP_ROM_QSTR(MP_QSTR_exp),     MP_ROM_PTR(&picocalc_math_exp_obj) },
     { MP_ROM_QSTR(MP_QSTR_log),     MP_ROM_PTR(&picocalc_math_log_obj) },
+    { MP_ROM_QSTR(MP_QSTR_log10),   MP_ROM_PTR(&picocalc_math_log10_obj) },
     { MP_ROM_QSTR(MP_QSTR_pow),     MP_ROM_PTR(&picocalc_math_pow_obj) },
     { MP_ROM_QSTR(MP_QSTR_fabs),    MP_ROM_PTR(&picocalc_math_fabs_obj) },
+    { MP_ROM_QSTR(MP_QSTR_abs),     MP_ROM_PTR(&picocalc_math_fabs_obj) },  /* alias for HP/calculator convenience */
+    { MP_ROM_QSTR(MP_QSTR_asin),    MP_ROM_PTR(&picocalc_math_asin_obj) },
+    { MP_ROM_QSTR(MP_QSTR_acos),    MP_ROM_PTR(&picocalc_math_acos_obj) },
+    { MP_ROM_QSTR(MP_QSTR_atan),    MP_ROM_PTR(&picocalc_math_atan_obj) },
+    { MP_ROM_QSTR(MP_QSTR_atan2),   MP_ROM_PTR(&picocalc_math_atan2_obj) },
     { MP_ROM_QSTR(MP_QSTR_rpn_eval), MP_ROM_PTR(&picocalc_math_rpn_eval_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(picocalc_math_module_globals, picocalc_math_globals_table);

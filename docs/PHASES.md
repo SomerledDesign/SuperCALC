@@ -102,6 +102,74 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 1 — Core Math Engine & Expression System (inc1 in progress)
+**Current Phase (per LOOP_STATE.json)**: 2 — REPL + Stack + HP-style Programmable Language Skeleton
 
-Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0 automation now passes with complete-phase; hardware + final clearance pending.)
+Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0/1 host complete; hardware smoke + final clearance pending human on real PicoCalc. Phase 2 inc1 starts language skeleton + hygiene from Phase 1 QA.)
+
+## Phase 2 — REPL + Stack + HP-style Programmable Language Skeleton
+
+**Goal**: Usable calculator REPL experience (stack visible, variables, history) + first-class RPL-inspired programmable language skeleton. Programs are objects (storable, callable, first-class), with clean locals story started, powerful stack words, control primitives stubbed. Thin MPy driver for program source + high-level semantics; hot execution paths and future bytecode VM in C (src/core/picocalc_vm). Leverage Phase 1 expr + hybrid.
+
+**Deliverables for inc1 (small verifiable slice — current work)**:
+- [x] mp/lang/prog.py: Program (name, body as RPN tokens, source); make_prog / run_prog; first-class (sto/rcl in env works); execution via expr.eval_rpn (result returned, env side-effects preserved for RPL feel).
+- [x] expr.py: "run" / "eval" / "xeq" op in eval_rpn (and rpn_str) so programs on stack can be executed inline (duck-type on .body); supports 'rcl myprog run' pattern. No cycle; thin reuse of Phase1 eval.
+- [x] src/core/picocalc_vm.c skeleton + src/core/micropython.cmake: version string, minimal module registration (USER_C_MODULES pattern matching math). Stub vm_exec placeholder for future bytecode / control dispatch. No impl yet.
+- [x] hybrid.py: thin vm_version / vm_exec (C when present; py fallback delegates to prog.run for host tests).
+- [x] tests/test_prog.py: host harness covering define, run (value + sto inside), first-class store/recall, rpn "run" op integration, errors (underflow in body etc). All green on fallback.
+- [x] Hygiene from Phase1 QA: versions bumped (C 0.5-phase2, hybrid 0.5); pow fallback NaN guard made consistent in rpn fallback path too; RPN_STACK_MAX=32 + pow discrepancy + unary+ + abs export documented in DECISIONS (some already wired in C/expr); log10/asin/acos/atan/atan2 listed and present in surface.
+- [x] Docs: PHASES (this inc1 checklist + status), DECISIONS (Phase2 inc1 entries for prog model, VM boundary, limit tracking), README/expr docstrings refreshed.
+- [ ] On-device smoke for prog + new C vm module (requires UF2 build including usermod_picocalc_vm; human step).
+- [ ] Hardware verification recorded (via ralph or LOOP_STATE).
+
+**Success Criteria (inc1)**:
+- Host tests for program define/run/sto/rcl + rpn integration all green (test_prog.py + updates to test_expr).
+- Program objects are first-class (storable/retrievable/executable) using Phase1 env + expr machinery.
+- Thin hybrid boundary preserved: prog semantics / source in MPy; C vm skeleton in place for hot path later (no perf work in skel).
+- Git clean at handoff; complete-phase produces usable handoff + prompt.
+- No scope creep (no IF/START/FOR loops/control structures, no locals syntax, no bytecode compiler, no graphing/REPL UI polish, no CAS).
+- DECISIONS + PHASES reflect reality; Phase1 minors addressed in this "next increment".
+- C vm + math remain buildable against base (cmake fragments present).
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-2-inc1: prog skeleton + C vm stub"` for handoff. Hardware for Phase 0/1/2 pending human; LOOP_STATE last_completed remains -1 until recorded. Do not advance phase until auditor + human clearance.
+
+**Current inc1 status**: Host implementation complete for skeleton + docs. All new + old host tests green. C module structure ready. Awaiting hardware smoke on real PicoCalc (new vm module + prog import/exec via REPL). Use ralph complete-phase. 
+
+**Phase 2 Success Criteria (overall phase)**:
+- Runnable program define / call / store (HP-style) on host + on-device smoke.
+- Stack discipline and RPL words (dup/swap/...) feel authentic and are usable in programs.
+- REPL or interactive mode demonstrates algebraic + direct RPN + program invocation (device REPL + import is acceptable start; dedicated ui/calc_repl later).
+- C math surface expanded for scientific use (log10 + inverses at minimum) — done in inc1.
+- No major debt in language model; clear path to full C VM + control structures (IF/THEN, loops, -> locals) in inc2+ of this phase.
+- Host tests + docs updated; hardware verification tracked.
+- Git clean at handoffs; DECISIONS/PHASES accurate.
+
+**inc1 Deliverables (small verifiable slice — this increment)**:
+- [ ] Phase 2 section added to PHASES.md + current status accurate.
+- [ ] DECISIONS.md entries for: pow() fallback vs C documented+fixed in hybrid; unary + handling in parser (or explicit gap closed); RPN_STACK_MAX=32 tracked as limit for Phase 2 VM work; new math primitives.
+- [ ] Hygiene from Phase 1 QA addressed: hybrid pow guard for NaN match; to_rpn unary + supported (leading + ignored cleanly); `abs` exported from C module; version strings bumped (remove "proof").
+- [ ] Expanded C math surface (Phase 2 backlog item): log10, asin, acos, atan, atan2 implemented in picocalc_math.c + registered + thin wrappers in hybrid.py + exposed in expr.py (funcs + rpn dispatch) + host tests.
+- [ ] Programmable language skeleton (mp/lang/prog.py): Program class (body as RPN token list or source; first-class), store/recall via env (integrates with sto/rcl), run/execute support that shares stack+env with caller for authentic RPL execution semantics. Integrated with eval_rpn (program token on stack or name resolves to Program triggers inline body execution).
+- [ ] Basic program examples/tests: quadratic solver as stored program, simple subprogram call, store program then rcl+execute, error cases. All host green (test_prog or extended test_expr).
+- [ ] mp/lang/expr.py and hybrid.py docstrings updated for Phase 2 scope (programs coexist with expressions).
+- [ ] README.md status line updated to reflect Phase 2 inc1 in progress.
+- [ ] Host tests pass (hybrid + expr + new prog). C sources remain buildable (no breakage to USER_C_MODULES contract).
+- [ ] On-device smoke for new math primitives + basic prog define/call — tracked as human step (HW verification still pending Phase 0/1 gate too).
+- [ ] Git clean at handoff; complete-phase produces usable package.
+
+**inc1 Success Criteria**:
+- Host: new primitives (log10(100)=2, asin(0)=0, etc) + domain errors (asin(2) raises) work in infix, rpn, and hybrid direct calls.
+- Host: Program objects storable/retrievable via existing env/sto/rcl paths; executing a program runs its body on shared stack producing correct results (e.g. [ 'x' 'rcl' 2 '*' ] as body for double).
+- Unary + parses cleanly (eval_infix("+3") == 3.0) or raises clear error; documented.
+- Version strings reflect Phase 1 complete / Phase 2 start.
+- No scope creep (no graphing, no full control structures like IF/START, no bytecode yet — those for inc2).
+- All prior Phase 1 minors that were "before Phase 2" addressed or explicitly recorded.
+
+**Current inc1 status**: In progress (Ralph Loop Phase 2 attempt 1). Host work + docs first; hardware after UF2.
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-2-inc1: lang skeleton + math primitives + Phase1 QA hygiene"` when deliverables ready. Do not advance phase until auditor + human clearance.
+
+## Later Phases (High Level)
+
+(For reference — see prior outline and ARCHITECTURE.md; only current phase work is active.)
+- Phase 3: Graphing engine (2D Cartesian/polar/parametric, C sampling, viewport/interaction on 320x320).
+- Phase 4+: Solvers, stats, units, richer CAS (eigenmath), polish, packaging.

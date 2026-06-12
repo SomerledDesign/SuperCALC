@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """
-Host-side tests for SuperCalc.OG Phase 1 expression system (infix + RPN + stack + vars).
-Exercises mp/lang/expr.py which uses hybrid (C or py fallback).
+Host-side tests for SuperCalc.OG Phase 1 expression system (infix + RPN + stack + vars)
++ Phase 2 programmable language skeleton (programs as first-class, inline execution).
+
+Exercises mp/lang/expr.py + mp/lang/prog.py which use hybrid (C or py fallback).
 
 Run:
     python3 tests/test_expr.py
@@ -30,7 +32,11 @@ def test_to_rpn_basic():
     assert r == [2.0, 3.0, 4.0, "*", "+"], r
     r = to_rpn("(2+3)*4")
     assert r == [2.0, 3.0, "+", 4.0, "*"], r
-    print("OK to_rpn basic + prec + parens")
+    # unary + handling (Phase 2 hygiene)
+    assert to_rpn("+3") == [3.0], to_rpn("+3")
+    assert to_rpn("+ 3.5") == [3.5], to_rpn("+ 3.5")
+    assert to_rpn("1 + +2") == [1.0, 2.0, "+"], to_rpn("1 + +2")  # second + ignored as unary
+    print("OK to_rpn basic + prec + parens + unary+")
 
 def test_eval_infix_numeric():
     assert approx(eval_infix("2+3"), 5.0)
@@ -40,7 +46,11 @@ def test_eval_infix_numeric():
     assert approx(eval_infix("sin(0)"), 0.0)
     assert approx(eval_infix("cos(pi/2)"), 0.0, 1e-9)
     assert approx(eval_infix("sqrt(9) + log(e)"), 4.0, 1e-9)
+    assert approx(eval_infix("log10(100)"), 2.0)
+    assert approx(eval_infix("asin(0) + acos(1)"), 0.0)
     assert approx(eval_infix("2 * pi"), 2 * math.pi)
+    assert approx(eval_infix("+5"), 5.0)
+    assert approx(eval_infix("1 + +2"), 3.0)
     print("OK eval_infix numeric + funcs + pi")
 
 def test_eval_infix_vars():
@@ -132,8 +142,68 @@ def test_rpn_str_aliases():
     assert approx(eval_rpn_str("9 sqrt 2 pow"), 9.0)  # (sqrt9)^2
     print("OK eval_rpn_str op aliases (add sub mul div pow)")
 
+# --- Phase 2 program skeleton tests (first-class + inline shared-stack execution) ---
+
+def test_program_basic():
+    from mp.lang.prog import Program, store_program, is_program
+    env = {}
+    # double top of stack
+    dbl = Program(["dup", "*"], name="dbl")
+    assert is_program(dbl)
+    store_program("dbl", dbl, env)
+    # direct python run
+    res = eval_rpn([4, "dbl"], env)
+    assert approx(res, 16.0)
+    # name as word in rpn text triggers auto-exec (RPL word call)
+    res2 = eval_rpn_str("5 dbl", env)
+    assert approx(res2, 25.0)
+    # stored under name
+    assert "dbl" in env and is_program(env["dbl"])
+    print("OK Phase2 Program define + name-as-call + store")
+
+def test_program_sto_rcl_eval():
+    from mp.lang.prog import Program, store_program
+    env = {}
+    # program that squares then adds 1: x -- x^2+1
+    sq1 = Program([ "dup", "*", 1, "+" ], name="sq1")
+    store_program("sq1", sq1, env)
+    env2 = {}
+    store_program("sq1", sq1, env2)
+    # 3 sq1  (name call)
+    assert approx(eval_rpn([3, "sq1"], env2), 10.0)
+    # push prog via rcl then eval (first-class: recall the program object on stack, eval executes it against the arg left below)
+    assert approx(eval_rpn([3, "rcl", "sq1", "eval"], env2), 10.0)
+    print("OK Phase2 rcl program + explicit eval + mixed call")
+
+def test_program_side_effects_and_nesting():
+    from mp.lang.prog import Program, store_program
+    env = {}
+    # inner program: increments a var 'c' and leaves it
+    inc = Program([ "rcl", "c", 1, "+", "sto", "c" ], name="inc")
+    store_program("inc", inc, env)
+    env["c"] = 0.0
+    # run twice via name
+    eval_rpn(["inc", "inc", 0], env)  # dummy value left so top-level eval_rpn contract (non-empty) is satisfied; side effects still applied
+    assert approx(env["c"], 2.0)
+    # a caller program that calls inc
+    caller = Program([ 10, "sto", "c", "inc", "rcl", "c" ], name="caller")
+    store_program("caller", caller, env)
+    res = eval_rpn(["caller"], env)
+    assert approx(res, 11.0)
+    print("OK Phase2 programs with sto/rcl side effects + 'calling' other programs")
+
+def test_program_first_class():
+    from mp.lang.prog import Program, store_program
+    env = {}
+    dbl = Program(["dup", "*"])
+    store_program("dbl", dbl, env)
+    # store the program itself under another name (first-class)
+    env["alias"] = env["dbl"]
+    assert approx(eval_rpn([7, "alias"], env), 49.0)
+    print("OK Phase2 first-class: program values storable and invocable under aliases")
+
 def main():
-    print("SuperCalc.OG expr test harness (Phase 1) — host fallback path")
+    print("SuperCalc.OG expr test harness (Phase 1 + Phase 2 prog skeleton) — host fallback path")
     print(f"HAS_C_MATH={HAS_C_MATH} (C rpn_eval used only on device)")
     print("---")
     test_to_rpn_basic()
@@ -146,8 +216,12 @@ def main():
     test_errors()
     test_precedence_associativity()
     test_rpn_str_aliases()
+    test_program_basic()
+    test_program_sto_rcl_eval()
+    test_program_side_effects_and_nesting()
+    test_program_first_class()
     print("---")
-    print("ALL EXPR TESTS PASSED")
+    print("ALL EXPR + PROG TESTS PASSED")
     if not HAS_C_MATH:
         print("Note: C rpn_eval + leafs verified only via hybrid fallback on host.")
         print("      Flash custom UF2 (src/math + our mp/lang) and re-run for native path.")

@@ -138,6 +138,45 @@ Also fixed m-1 (raise msg), m-2 (alias dispatch), m-3 (doc), m-5 (tests).
 
 **Date**: 2026-06 Phase 1 inc1 (post QA)
 
+### Phase 1 QA Minors Addressed at Phase 2 Start
+**Decision**: In Phase 2 inc1: (a) added explicit guard in hybrid.py pow() fallback so negative**non-int returns NaN (float('nan')) matching the C path behavior instead of raising ValueError; (b) to_rpn now cleanly handles leading unary '+' (treated as no-op, prev_was flag respected) and documents the prior gap; (c) RPN_STACK_MAX=32 recorded as explicit tracked limit (will revisit for nested calls / subroutines in full VM); (d) abs exported from C globals; versions bumped; log10 + inverse trig added as Phase 2 early surface.
+
+**Rationale**: Auditor report (Phase 1 fix2) listed these as "Should address in the next increment (before Phase 2 start)". Doing them in inc1 of Phase 2 satisfies the recommendation while keeping Phase 1 scope locked. The pow guard makes the hybrid fallback a faithful test proxy for the C path even on host. Unary + support improves parser robustness for graphing/programs later without changing precedence model.
+
+**Date**: 2026-06 Phase 2 inc1
+
+### RPN_STACK_MAX=32 Tracked Limit
+**Decision**: The C rpn_eval (and MPy mirror) hard limit of 32 stack slots (RPN_STACK_MAX) is intentional for Phase 1 expressions but is now explicitly tracked in DECISIONS as a limit to revisit when Phase 2 adds programmable subroutines, loops, and nested calls. No change to value in inc1; documented for future VM work (src/core VM will likely increase or make dynamic with PSRAM consideration).
+
+**Rationale**: Auditor recommendation. Makes the constraint visible and prevents surprise when users write larger programs. 32 is generous for straight-line exprs and small programs; full RPL programs with deep nesting will drive the next sizing decision (and possibly a separate call/return stack).
+
+**Date**: 2026-06 Phase 2 inc1
+
 ---
+
+## 2026-06 (Phase 2 inc1 — Programmable Language Skeleton start)
+
+### Program Model for inc1 (RPN bodies + first-class via env)
+**Decision**: Programs are Python objects (mp.lang.prog.Program) holding a .body (RPN token list) + optional name/source. They are stored/recalled exactly like numbers via the Phase1 env (sto/rcl). Execution is driven by expr._execute_rpn_body (shared stack + env mutation) for authentic RPL "inline" feel in inc1. Literal Program instances in rpn token lists are *pushed as data values* (first-class); execution uses explicit "run"/"eval"/"xeq" (EVAL_ALIASES) or bare name resolution (which auto-execs for word-call ergonomics). store/run helpers provided; tests exercise all paths.
+
+**Rationale**: Keeps implementation small and verifiable for inc1 while proving first-class + sto/rcl + run. Reuses all Phase1 machinery (no duplication). Shared-stack body exec (added in expr refactor) enables side-effect progs and caller stack results without fresh stack per call. Eager auto-exec only on name-resolve keeps literal prog tokens usable for data (sto the prog itself). C will accelerate later.
+
+**Alternatives considered**: Full eager auto-exec on any embedded Program tok (rejected: broke [prog, "sto", name] data use and made "run" op unreachable in tests). Separate call stack from day 1 (deferred: too much for small slice; shared is fine and matches m-3 notes on why eval_rpn stays MPy for side effects).
+
+**Date**: 2026-06 Phase 2 inc1
+
+### C VM Skeleton + Hybrid Glue
+**Decision**: Introduced src/core/picocalc_vm.c (minimal: version + exec stub raising NotImplemented with clear guidance) + matching micropython.cmake. hybrid.py exposes HAS_VM / vm_version / vm_exec (C path if built; py fallback that delegates to prog/expr for host continuity). The module follows the exact picocalc_math pattern for USER_C_MODULES builds.
+
+**Rationale**: Establishes the thin boundary and future hot path location (per ARCHITECTURE: C for VM inner dispatch). Host tests and prog execution work immediately via fallback (PGR "host harness first"). No bytecode or control yet.
+
+**Date**: 2026-06 Phase 2 inc1
+
+### Top-level eval contract + side-effect programs
+**Decision**: eval_rpn requires a final non-empty stack (original Phase1); called program *bodies* may end empty (side-effect only, e.g. pure sto progs). Tests that invoke void progs at top level leave a dummy value or use rcl-after to satisfy the check.
+
+**Rationale**: Preserves Phase1 error semantics for direct calculations while allowing useful RPL-style side-effect programs. Minor test adjustments only (no API change).
+
+**Date**: 2026-06 Phase 2 inc1
 
 Add entries at the end of each phase or when a significant choice is locked. Include date, decision, rationale, and alternatives considered.
