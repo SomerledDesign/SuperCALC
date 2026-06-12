@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 1 inc1 — Core hybrid math engine + expression system (infix + RPN parsers in mp/lang/expr.py, C rpn_eval kernel + extended primitives in src/math/picocalc_math, stack ops + vars, host tests). Ralph Loop engaged (complete-phase + clearance fixes applied). Phase 0 foundation complete; hardware smoke + auditor review pending. Awaiting device flash verification.
+**Status**: Phase 3 inc1 — Graphing data sampling engine (cartesian_sample via expr/hybrid reuse, 320x320 n-default, mp/plot + src/plot C skeleton, HAS_PLOT glue). All host tests (hybrid/expr/prog + new plot) green. Phase 2 inc1 (prog skeleton) host-complete + prior QA minors closed as hygiene. Ralph Loop active. Hardware smoke (0/1/2/3) pending real PicoCalc UF2 (includes picocalc_plot). See docs/PHASES.md + handoffs/.
 
 ## Vision
 

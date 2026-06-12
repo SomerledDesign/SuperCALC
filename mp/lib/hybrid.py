@@ -272,8 +272,9 @@ def vm_exec(obj):
         # When real C module present, prefer its entry (future incs will define shape)
         try:
             return _vm.exec(obj)  # placeholder name; adjust when C impl added
-        except Exception:
-            pass  # fall through to py for skel compatibility
+        except NotImplementedError:
+            pass  # C skel; fall through to py (intentional for skeleton period)
+        # Other exceptions from a real C impl will propagate (do not swallow)
     # py fallback path (host/dev)
     from mp.lang.prog import is_program, run_prog
     if is_program(obj):
@@ -281,3 +282,34 @@ def vm_exec(obj):
     # treat as rpn token list (re-use expr for full var/sto support in skel)
     from mp.lang.expr import eval_rpn
     return eval_rpn(obj)
+
+# --- Phase 3: thin plot boundary (picocalc_plot C module) ---
+# For inc1 this is a skeleton: version + sample stub (raises NotImpl).
+# Real sampling (cartesian + future polar) implemented in mp/plot/plot.py
+# (re-uses expr + hybrid math for host continuity and rapid iteration).
+# C will later own dense sampling loops + raster for speed on 320x320.
+try:
+    import picocalc_plot as _plot
+    HAS_PLOT = True
+except ImportError:
+    HAS_PLOT = False
+
+def plot_version():
+    if HAS_PLOT:
+        return _plot.version()
+    return "plot-py-fallback-0.5"
+
+def plot_sample(obj):
+    """Skeleton entry (signature will evolve). Real work for inc1 is in mp.plot.
+    When C present and implemented, this (or new entrypoints taking buffers)
+    will accelerate f(x) sampling and drawing.
+    """
+    if HAS_PLOT:
+        try:
+            return _plot.sample(obj)
+        except NotImplementedError:
+            pass  # C skel; fall through
+    # py path (always works on host; on device too until C wired)
+    from mp.plot import cartesian_sample
+    # minimal passthrough example; real callers use the mp.plot API directly
+    return cartesian_sample(obj) if isinstance(obj, str) else None

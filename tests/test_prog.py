@@ -120,6 +120,21 @@ def test_errors():
         pass
     print("OK error cases (prog underflow, missing name)")
 
+def test_program_ctor_string_first_arg():
+    # N-2 hygiene from Phase 2 QA: explicitly test the rare string-first path
+    # Program("name") treats str as name (body empty); documented as flexible but secondary to kw form.
+    p = Program("myprog")
+    assert p.name == "myprog"
+    assert p.body == []
+    assert is_program(p)
+    # recommended/named+body form (avoids signature conflict on first 'body' param)
+    p2 = Program(body=[1, 2, "+"], name="withbody")
+    assert p2.name == "withbody"
+    assert p2.body == [1, 2, "+"]
+    # str-first path is intentionally "rare" (see ctor comments); we exercised pure name case above.
+    # Mixed Program("name", body=...) collides because first positional binds to 'body' param.
+    print("OK Program ctor string-first-arg path (documented behavior)")
+
 def main():
     print("SuperCalc.OG Phase 2 prog skeleton host tests")
     print("---")
@@ -131,6 +146,7 @@ def main():
     test_rpn_str_with_run()
     test_vm_hybrid_glue()
     test_errors()
+    test_program_ctor_string_first_arg()
     print("---")
     print("ALL TESTS PASSED (host harness for Phase 2 inc1)")
     if not HAS_VM:

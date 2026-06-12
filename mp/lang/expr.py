@@ -204,7 +204,7 @@ def _resolve_or_exec(name_or_val, env, stack):
     if isinstance(name_or_val, Program):
         _execute_rpn_body(name_or_val.body, stack, env)
         return None  # executed, nothing to push
-    if isinstance(name_or_val, (str, tuple)) and isinstance(name_or_val, tuple) and name_or_val[0] == "var":
+    if isinstance(name_or_val, tuple) and name_or_val[0] == "var":
         val = _resolve_var(name_or_val[1], env)
     else:
         val = name_or_val
@@ -439,7 +439,7 @@ def eval_rpn_str(rpn_text: str, env=None):
     toks = []
     for part in rpn_text.strip().split():
         if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2") or
-            part in EVAL_ALIASES or part in _FUNC_NAMES or part in "+-*/^"):
+            part in EVAL_ALIASES or part in _FUNC_NAMES or part in {"+", "-", "*", "/", "^"}):
             toks.append(part)
         else:
             # number or bare var? treat bare idents after sto/rcl as names, but for general, if not num try var later

@@ -179,4 +179,30 @@ Also fixed m-1 (raise msg), m-2 (alias dispatch), m-3 (doc), m-5 (tests).
 
 **Date**: 2026-06 Phase 2 inc1
 
+### Graphing Data-First Approach (Phase 3 inc1)
+**Decision**: For inc1, deliver a pure data sampling API (`mp.plot.cartesian_sample`) that produces lists of (x, y) points by repeatedly evaluating user expressions / RPN bodies / Programs via the existing Phase1/2 expr + hybrid layers (setting 'x' each step). The C `picocalc_plot` module is introduced only as a registered skeleton (version + NotImpl stub) to establish the future hot-path location. Pixel rasterization, framebuffer writes, UI viewport chrome, and interactive trace live in inc2+.
+
+**Rationale**:
+- Matches "small verifiable slice" + PGR rules: host tests runnable immediately, C skeleton proves build path without over-scope.
+- Reuses expr RPN (parse once, eval N times) which is already correct, side-effect capable (RPL spirit), and exercises hybrid/C math.
+- 320x320 default n=320 gives natural 1:1 sample-to-column mapping for later render without resampling artifacts in first cut.
+- Avoids fighting display driver or allocating large pixel buffers in inc1 (PSRAM/LUT strategy from prior Decision already recorded).
+- Keeps MPy in control of "which expr/program to graph" while C will later own the inner loop (x-gen + batch eval + draw).
+
+**Date**: 2026-06 Phase 3 inc1
+
+### Thin Plot Boundary + Future C Sampling
+**Decision**: hybrid.py exposes only HAS_PLOT + plot_version (like VM). The useful sampling lives in mp/plot/ (importable, documented). When real C picocalc_plot lands, it will provide e.g. a C function taking x-buffer + RPN-tokens (or precompiled form) and returning y-buffer; MPy side (or future C raster) will consume it. No change to cartesian_sample call shape for callers.
+
+**Rationale**: Preserves the proven thin-boundary contract from Phase 0-2. Allows perf work on sampling (the "plotting loop" hot path called out in ARCHITECTURE) without rewriting the user-facing or test surface.
+
+**Date**: 2026-06 Phase 3 inc1
+
+### Phase 2 QA Minors Closed at Phase 3 Start
+**Decision**: The four "should address before Phase 3 gate" items (M-1 broad except in vm_exec, M-2 fragile `in "+-*/^"`, N-1 dead isinstance str, N-2 Program ctor test) plus M-3 LOOP_STATE reconciliation were implemented as hygiene in Phase 3 inc1 rather than a phase-2-fix. State advanced to 3 + history note added; PHASES updated.
+
+**Rationale**: Auditor explicitly listed them as "Can be addressed before the Phase 3 gate (not blocking inc2)". Doing them here keeps Phase 2 inc1 scope locked while satisfying the "address every issue" rule before hardware and further incs. Explicit test for the ctor documents the flexible behavior instead of removing it.
+
+**Date**: 2026-06 Phase 3 inc1
+
 Add entries at the end of each phase or when a significant choice is locked. Include date, decision, rationale, and alternatives considered.
