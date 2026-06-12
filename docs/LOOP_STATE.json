@@ -16,10 +16,11 @@
         "Handoff generated: phase-0-20260612-154313-review-request.md",
         "Handoff generated: phase-0-20260612-154318-review-request.md",
         "Handoff generated: phase-0-20260612-154621-review-request.md",
-        "Handoff generated: handoffs/phase-1-20260612-164414-review-request.md"
+        "Handoff generated: handoffs/phase-1-20260612-164414-review-request.md",
+        "Handoff generated: handoffs/phase-1-20260612-170437-review-request.md"
       ]
     }
   ],
-  "last_handoff": "handoffs/phase-1-20260612-164414-review-request.md",
-  "notes": "Unattended Ralph Loop initialized. Git local repo active.; phase-1-inc1 handoff 20260612-163039; Phase 1 fix2: B/M fixes + minors; Phase 0 last_completed still -1 (HW verification pending human per m-6); complete-phase at 20260612-164414; phase-1-fix2 complete-phase handoff"
+  "last_handoff": "handoffs/phase-1-20260612-170437-review-request.md",
+  "notes": "Unattended Ralph Loop initialized. Git local repo active.; phase-1-inc1 handoff 20260612-163039; Phase 1 fix2: B/M fixes + minors; Phase 0 last_completed still -1 (HW verification pending human per m-6); complete-phase at 20260612-164414; phase-1-fix2 complete-phase handoff; complete-phase at 20260612-170437"
 }
