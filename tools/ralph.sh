@@ -240,25 +240,7 @@ EOF
   esac
 }
 
-# Detect if first positional after implicit is a subcommand (or if PGR was defaulted but 1st arg looks like cmd)
-if [[ "$PGR_FILE" == "status" || "$PGR_FILE" == "help" || "$PGR_FILE" == "--help" || "$PGR_FILE" == "-h" || "$PGR_FILE" == "--status" || "$PGR_FILE" == "complete-phase" ]]; then
-  handle_subcommand "$PGR_FILE"
-elif [[ "$START_PHASE" == "status" || "$START_PHASE" == "help" || "$START_PHASE" == "--help" || "$START_PHASE" == "-h" || "$START_PHASE" == "--status" || "$START_PHASE" == "complete-phase" ]]; then
-  handle_subcommand "$START_PHASE"
-fi
-
-if [[ ! -f "$PGR_FILE" ]]; then
-  echo "Error: PGR file '$PGR_FILE' not found." >&2
-  exit 1
-fi
-if [[ ! -f "$CLAUDEQA_FILE" ]]; then
-  echo "Error: ClaudeQA file '$CLAUDEQA_FILE' not found." >&2
-  exit 1
-fi
-
-MAX_RETRIES=3
-
-# ── helpers ─────────────────────────────────────────────────────────────────────
+# ── helpers (hoisted early so handle_subcommand for complete-phase/status can call them) ──
 current_phase() {
   if [[ -f docs/LOOP_STATE.json ]]; then
     python3 -c '
@@ -280,6 +262,26 @@ phase_cleared() {
   # This prevents false-positive phase advancement.
   grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE|CLEARED TO ADVANCE" claude_report.txt 2>/dev/null
 }
+
+# Detect if first positional after implicit is a subcommand (or if PGR was defaulted but 1st arg looks like cmd)
+if [[ "$PGR_FILE" == "status" || "$PGR_FILE" == "help" || "$PGR_FILE" == "--help" || "$PGR_FILE" == "-h" || "$PGR_FILE" == "--status" || "$PGR_FILE" == "complete-phase" ]]; then
+  handle_subcommand "$PGR_FILE"
+elif [[ "$START_PHASE" == "status" || "$START_PHASE" == "help" || "$START_PHASE" == "--help" || "$START_PHASE" == "-h" || "$START_PHASE" == "--status" || "$START_PHASE" == "complete-phase" ]]; then
+  handle_subcommand "$START_PHASE"
+fi
+
+if [[ ! -f "$PGR_FILE" ]]; then
+  echo "Error: PGR file '$PGR_FILE' not found." >&2
+  exit 1
+fi
+if [[ ! -f "$CLAUDEQA_FILE" ]]; then
+  echo "Error: ClaudeQA file '$CLAUDEQA_FILE' not found." >&2
+  exit 1
+fi
+
+MAX_RETRIES=3
+
+# (helpers current_phase/phase_cleared hoisted earlier for subcommand dispatch)
 
 run_grok() {
   local phase="$1"
