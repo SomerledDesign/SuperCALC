@@ -514,8 +514,10 @@ def main():
                         help="Path (relative to workspace) to the implementer guide (PGR.md)")
     parser.add_argument("--claudeqa", type=Path, default=Path("docs/ClaudeQA.md"),
                         help="Path (relative to workspace) to the reviewer guide (ClaudeQA.md)")
-    parser.add_argument("--phase", type=int, default=0, help="Target phase to drive")
-    parser.add_argument("--max-iterations", type=int, default=5, help="Safety limit on autonomous iterations")
+    parser.add_argument("--phase", type=int, default=None, help="Target phase to drive (if --until-complete not used)")
+    parser.add_argument("--until-complete", action="store_true", help="Run from the current phase through all remaining phases until the entire program is complete (recommended for full build)")
+    parser.add_argument("--max-iterations", type=int, default=5, help="Safety limit on autonomous iterations *per phase*")
+    parser.add_argument("--max-phase", type=int, default=7, help="Highest phase number in the project (Phase 0 through packaging/performance/release)")
     parser.add_argument("--auto", action="store_true", help="Run the full unattended loop")
     parser.add_argument("--run-cmd", type=str, nargs="*", help="Run a one-off sandboxed command instead of the loop (e.g. --run-cmd git status)")
     parser.add_argument("--status-only", action="store_true", help="Just print status and exit")
@@ -542,18 +544,45 @@ def main():
         return
 
     if args.auto:
-        run_unattended_loop(
-            workspace=workspace,
-            pgr_path=pgr_path,
-            claudeqa_path=claudeqa_path,
-            target_phase=args.phase,
-            max_iterations=args.max_iterations,
-            auto=True
-        )
+        if args.until_complete:
+            # Run full program: from current phase through max_phase
+            current = int(ralph_status(workspace).get('current_phase', 0) or 0)
+            print(f"[ORCHESTRATOR] --until-complete: Will drive phases {current} through {args.max_phase} until the entire SuperCalc.OG program is complete.")
+            for p in range(current, args.max_phase + 1):
+                print(f"\n{'='*70}")
+                print(f"DRIVING PHASE {p} (until local Claude approves per ClaudeQA.md)")
+                print(f"{'='*70}")
+                run_unattended_loop(
+                    workspace=workspace,
+                    pgr_path=pgr_path,
+                    claudeqa_path=claudeqa_path,
+                    target_phase=p,
+                    max_iterations=args.max_iterations,
+                    auto=True
+                )
+                # After phase completes (Claude approved), advance state for next
+                print(f"[ORCHESTRATOR] Phase {p} complete per Claude. Advancing to phase {p+1}...")
+                ralph_loop_py = str(workspace / "tools" / "ralph_loop.py")
+                run_cmd([sys.executable, ralph_loop_py, "set-phase", str(p+1)], cwd=workspace, check=False)
+            print("\n[ORCHESTRATOR] All phases complete! The program (SuperCalc.OG) should now be finished per the Ralph Loop.")
+        else:
+            if args.phase is None:
+                args.phase = 0
+            run_unattended_loop(
+                workspace=workspace,
+                pgr_path=pgr_path,
+                claudeqa_path=claudeqa_path,
+                target_phase=args.phase,
+                max_iterations=args.max_iterations,
+                auto=True
+            )
     else:
         print("No --auto or --run-cmd given. Use --help for options.")
-        print("Example for full autonomous drive:")
+        print("Examples:")
+        print("  # Drive a single phase")
         print("  python tools/ralph_orchestrator.py --auto --phase 0 --max-iterations 5")
+        print("  # Run the ENTIRE program: all phases until complete (phase iterations + claude qa + next phase ...)")
+        print("  python tools/ralph_orchestrator.py --auto --until-complete --max-iterations 10")
 
 if __name__ == "__main__":
     main()
