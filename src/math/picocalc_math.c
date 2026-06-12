@@ -12,6 +12,7 @@
 
 #include "py/obj.h"
 #include "py/runtime.h"
+#include "py/objiter.h"
 #include <math.h>
 #include <string.h>
 
@@ -125,10 +126,10 @@ STATIC mp_obj_t picocalc_math_rpn_eval(mp_obj_t tokens_in) {
     double stack[RPN_STACK_MAX];
     int sp = 0;  // stack pointer (next free)
 
-    mp_obj_iter_t it;
-    mp_obj_get_iter(tokens_in, &it);
+    mp_obj_iter_buf_t iter_buf;
+    mp_obj_t iter = mp_obj_get_iter(tokens_in, &iter_buf);
     mp_obj_t item;
-    while ((item = mp_iternext(&it)) != MP_OBJ_STOP_ITERATION) {
+    while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
         double v;
         if (mp_obj_get_float_maybe(item, &v)) {
             if (sp >= RPN_STACK_MAX) {
@@ -220,7 +221,7 @@ STATIC mp_obj_t picocalc_math_rpn_eval(mp_obj_t tokens_in) {
             stack[sp] = stack[sp-2];
             sp++;
         } else {
-            mp_raise_ValueError_varg(MP_ERROR_TEXT("unknown rpn op: %s"), op);
+            mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("unknown rpn op: %s"), op);
         }
     }
     if (sp < 1) {
