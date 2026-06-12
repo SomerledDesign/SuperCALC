@@ -89,6 +89,8 @@ In the base port's build system (they use Docker + `micropython.cmake` + `USER_C
 
 **Numeric precision note (Phase 1+)**: Our C math (picocalc_math) and hybrid assume `MICROPY_FLOAT_IMPL_DOUBLE` (double precision) in the base MicroPython build for RP2350. The LofiFren Pico 2 W recommended UF2 uses this; if you roll a custom build, verify `mpconfigport.h` or build flags set it (otherwise single-precision will silently reduce accuracy for the hybrid math kernel). See DECISIONS.md "Numeric Baseline".
 
+**C API hygiene (Phase 1 fix2)**: The rpn_eval implementation now uses the documented public iterator pattern (`mp_obj_iter_buf_t iter_buf; mp_obj_t iter = mp_obj_get_iter(..., &iter_buf); mp_iternext(iter)`) + `mp_raise_msg_varg`. This resolves the compile-time blocker against real MicroPython headers from the base ports. The module skeleton is ready for inclusion in a LofiFren/zenodante USER_C_MODULES build. Full UF2 + on-device verification remains a human-performed step (no base firmware tree in this workspace).
+
 ## Battery & Power Notes
 
 - The STM32 on the board can report battery status in many custom firmwares (LofiFren port has examples).

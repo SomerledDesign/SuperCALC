@@ -119,6 +119,25 @@ Record significant architectural, technical, and scope decisions with rationale 
 
 **Date**: 2026-06 Phase 1 inc1
 
+### Phase 1 inc1 QA Fixes (retry 2)
+**Decision**: Addressed all Blockers/Majors from first inc1 auditor report before re-handoff:
+- B-1: Corrected MicroPython C iterator usage in rpn_eval (mp_obj_iter_buf_t + mp_obj_get_iter return value + mp_iternext(iter)).
+- M-1: Lowered "neg" precedence to 2.5 ( > * / + - , < ^ ) + right-assoc ^ via strict > in shunting push_op.
+- M-2: Power now right-associative (2^2^3 == 256 not 64).
+- Added regression tests; extended rpn_str aliases; documented eval_rpn vs eval_infix paths; recorded pow behavior.
+Also fixed m-1 (raise msg), m-2 (alias dispatch), m-3 (doc), m-5 (tests).
+
+**Rationale**: Must-fix items per ClaudeQA report for Phase 1 inc1 clearance. Host tests now cover the previously-untested cases that exposed the defects (-2^2, 2^2^3, alias forms). C API now matches public MPy headers (will compile in USER_C_MODULES build).
+
+**Date**: 2026-06 Phase 1 inc1 fix2
+
+### C pow() NaN for complex-result cases (e.g. pow(-1, 0.5))
+**Decision**: picocalc_math_pow (and hybrid fallback) pass through NaN for cases like (-1)**0.5 without raising; contrast with sqrt(-1) which raises ValueError in both layers. Recorded as deliberate for Phase 1.
+
+**Rationale**: Keeps C kernel simple and fast (no extra isnan/domain checks on every pow). Matches Python's math.pow behavior for negative**non-int. sqrt path has explicit guard for common real-domain use. Full complex support and consistent domain policy (or signed-zero/branch-cut handling) deferred to later numeric or CAS work. Acceptable for inc1 scope; users doing fractional powers on negatives will see NaN (or can use explicit logic).
+
+**Date**: 2026-06 Phase 1 inc1 (post QA)
+
 ---
 
 Add entries at the end of each phase or when a significant choice is locked. Include date, decision, rationale, and alternatives considered.

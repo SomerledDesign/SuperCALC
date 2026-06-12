@@ -51,7 +51,7 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 - User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification
 - First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt (Phase 0), extended in Phase 1 inc1.
 
-**Current Status**: Phase 0 foundation complete in code/tooling. complete-phase + clearance logic fixed. Automation now matches PGR expectations. Awaiting hardware smoke on real PicoCalc. Phase 1 inc1 work has begun (see below). See handoffs/ and claude_report for history.
+**Current Status**: Phase 0 foundation complete in code/tooling. complete-phase + clearance logic fixed. Automation now matches PGR expectations. Awaiting hardware smoke on real PicoCalc (human step; LOOP_STATE correctly records last_completed_phase: -1 until human verification recorded). Phase 1 inc1 + fix2 work complete in host (see below). See handoffs/ and claude_report for history.
 
 ## Phase 1 — Core Math Engine & Expression System
 
@@ -76,7 +76,7 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 
 **Automation Note**: When work on Phase 1 increments is ready, use `./tools/ralph.sh complete-phase "msg"` to hand off to Claude. Do not advance to Phase 2 until this phase gate is cleared by auditor + human.
 
-**Current inc1 status**: Host-complete, C+MPy glue + parsers + tests in place. Awaiting hardware confirmation + auditor review. See commit phase-1-inc1.
+**Current inc1 status**: Host-complete (with Phase 1 inc1 QA fix2: B-1 C iterator corrected + includes; M-1/M-2 parser prec/assoc fixed + new tests; minors addressed incl. doc, aliases, decisions). Host tests green. C module now uses correct public MicroPython API (mp_obj_iter_buf_t etc) so will compile in USER_C_MODULES builds. On-device smoke / full UF2 verification still pending human step (Phase 0 HW + this phase). Awaiting re-audit. Use ralph complete-phase for next handoff.
 
 ## Later Phases (High Level)
 

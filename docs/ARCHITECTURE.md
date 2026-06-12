@@ -80,14 +80,15 @@
 
 **Simple calculation (infix)**:
 1. MPy UI collects string `"sin(2*pi) + sqrt(3)"`
-2. Parser (MPy or thin C call) → internal RPN or AST
-3. `math_eval(internal)` → C kernel returns double/complex result
+2. Parser (MPy: mp/lang/expr.to_rpn) → RPN token list (with ('var',) for vars)
+3. Variable resolution in MPy → calls hybrid.rpn_eval() (C picocalc_math.rpn_eval batch when present)
 4. MPy formats and displays (nice printing, history)
 
 **RPN / stack mode**:
 1. User enters numbers and operators directly on stack (MPy maintains visible stack)
-2. Operators call thin C primitives for speed/accuracy
-3. LastX, stack lift, etc. handled in MPy or C stack module
+2. eval_rpn() in MPy drives Python stack; calls individual hybrid leafs (add/sin/neg/dup...) for numeric/stack ops (C accelerated per call)
+   Note: eval_rpn is *not* the C batch path (sto/rcl/env side effects live in MPy); eval_infix exercises the C rpn_eval stack machine directly after parsing.
+3. LastX, stack lift, etc. handled in MPy or C stack module (Phase 1: MPy for vars)
 
 **Graphing**:
 1. MPy maintains list of expressions + view parameters (Xmin etc.)

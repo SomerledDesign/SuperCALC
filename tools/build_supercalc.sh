@@ -16,6 +16,7 @@ cd "$PROJECT_ROOT"
 
 echo "[SuperCalc.OG] build_supercalc.sh — STUB (documents the process; does not yet run Docker/make)."
 echo "[SuperCalc.OG] The hybrid proof files exist; real UF2 requires the base port (see BRINGUP.md)."
+echo "[SuperCalc.OG] Phase 1 fix2: C iterator API (mp_obj_iter_buf_t) + mp_raise_msg_varg corrected; module will now compile against LofiFren/zenodante MicroPython headers."
 
 # Recommended flow (LofiFren/PicoCalc, Pico 2 W):
 # 1. Clone base (outside this tree):
