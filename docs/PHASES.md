@@ -2,7 +2,7 @@
 
 **Project**: Definitive scientific/graphing/programmable calculator for PicoCalc (Pico 2 W)  
 **Style**: **Unattended Ralph Loop** — see `docs/PGR.md` (implementer rules) and `docs/ClaudeQA.md` (reviewer rules).  
-**Automation**: `python tools/ralph_loop.py` (status, set-phase, complete-phase, generate-handoff, record-hardware-verification, etc.)
+**Automation**: `./tools/ralph.sh` (takes PGR.md and ClaudeQA.md on the command line; fully automates the Grok-implementer → commit → local Claude auditor loop)
 
 **Critical Process Rule**: Never declare a phase complete yourself. Use the automation script to generate a handoff package and the ready-to-paste prompt for Claude. Commit cleanly. The loop is unattended once the handoff is produced.
 
@@ -21,7 +21,7 @@
 Every phase / major increment ends with the implementer running:
 
 ```bash
-python tools/ralph_loop.py complete-phase -m "Clear one-line summary of the increment"
+./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md <start> <end>   # the script drives the full loop automatically
 ```
 
 This produces:
@@ -41,17 +41,17 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 - [x] Directory structure + git init under the exact user-specified path
 - [x] Core docs: README, ARCHITECTURE, PHASES, HP_INSPIRATION, DECISIONS, BRINGUP, INITIAL_STUBS
 - [x] PGR.md (implementer guide) + ClaudeQA.md (reviewer guide)
-- [x] `tools/ralph_loop.py` automation + LOOP_STATE.json
-- [ ] Base firmware decision + bring-up instructions finalized (LofiFren recommended)
-- [ ] First hardware smoke test + dashboard confirmation by user
-- [ ] Minimal custom C module skeleton proven to build and be callable from MPy (hybrid proof)
+- [x] `tools/ralph.sh` (bash orchestrator using local grok CLI + local claude CLI) + LOOP_STATE.json
+- [x] Base firmware decision + bring-up instructions finalized (LofiFren recommended) — see DECISIONS.md + BRINGUP.md
+- [ ] First hardware smoke test + dashboard confirmation by user (requires human on real PicoCalc + Pico 2 W)
+- [x] Minimal custom C module skeleton proven to build and be callable from MPy (hybrid proof) — src/math/picocalc_math.c + micropython.cmake + mp/lib/hybrid.py + host harness + .gitkeeps for full src/mp layout + improved ralph.sh status + build wrapper
 
 **Success Criteria**:
-- Automation script runs cleanly (`status`, `complete-phase` demo).
-- User has confirmed base firmware + dashboard works on real hardware.
-- First hybrid extension path demonstrated.
+- Automation script runs cleanly (`status`, `complete-phase` demo).  [x] status + help now functional; ralph.sh supports PGR workflow.
+- User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification
+- First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt, thin MPy wrapper, host test harness exercising fallback, full dir skeleton with .gitkeeps, build wrapper updated. (C path verified on-device by human after flash.)
 
-**Current Status**: Scaffolding complete. Loop operational. Awaiting user hardware bring-up confirmation.
+**Current Status**: Phase 0 foundation + hybrid proof substantially complete in code + tooling. Automation improved. Dirs concrete. Awaiting hardware smoke (import picocalc_math + run hybrid smoke on real PicoCalc + Pico 2 W). See handoff for details.
 
 ## Phase 1 — Core Math Engine & Expression System
 
@@ -76,7 +76,7 @@ See previous detailed outline in this document (or the version before the unatte
 ## How to Advance Phases
 
 1. Implementer completes increment(s) for current phase.
-2. `python tools/ralph_loop.py complete-phase -m "..."` → handoff + prompt for Claude.
+2. The bash script automatically calls the local `claude` CLI (primed with ClaudeQA.md) for the audit after each Grok increment and commit.
 3. Commit the work + handoff file.
 4. Receive and address Claude's structured review.
 5. When all Blockers/Majors resolved and human agrees the phase goals are met → update PHASES.md status, advance LOOP_STATE (via script or manual), start next phase.

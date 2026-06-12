@@ -1,0 +1,4 @@
+# gitkeep — firmware/
+# Placeholder for base port clone artifacts, prebuilts, or custom UF2 outputs.
+# Real base (LofiFren recommended) lives outside this tree per BRINGUP.md.
+# Our modules live in src/ and are mounted at build time via USER_C_MODULES.

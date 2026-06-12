@@ -6,7 +6,8 @@ This directory contains scripts and helpers for building, flashing, syncing, and
 
 - `dashboard.py` — We will integrate with (or extend) the excellent LofiFren dashboard rather than reinvent.
 - `build_graphingcalc.sh` — Wrapper that clones or mounts the base port and adds our `src/` USER_C_MODULES for a custom UF2 build.
-- `test_harness.py` — Host-side Python that mirrors the on-device hybrid math/plot/vm APIs so we can develop and unit-test large parts of the logic without constant flashing.
+- `test_harness.py` (planned) — Host-side Python that mirrors the on-device hybrid math/plot/vm APIs so we can develop and unit-test large parts of the logic without constant flashing.
+- `tests/test_hybrid.py` (Phase 0) — Concrete runnable host harness for the hybrid boundary proof (exercises fallback; documents C path).
 - `program_uploader.py` — Helper to package user programs + examples onto SD images or push them cleanly.
 - `accuracy_bench.py` — Compare our C math results against high-precision references (mpmath on host, etc.).
 

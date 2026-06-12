@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 0 — Project scaffolding and architecture definition. Ralph Loop engaged.
+**Status**: Phase 0 — Foundation + hybrid proof (C module skeleton + thin MPy boundary + host harness + automation + dir structure). Ralph Loop engaged. Awaiting hardware confirmation.
 
 ## Vision
 

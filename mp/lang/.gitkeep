@@ -1,1 +1,3 @@
-# Placeholder for hybrid C / MicroPython structure
+# gitkeep — mp/lang/ for SuperCalc.OG
+# Parsers (infix + RPN), program loader, high-level glue to C VM
+# RPL spirit: first-class programs, stack model, locals. (Phase 1+)

@@ -1,1 +1,3 @@
-# Placeholder for hybrid C / MicroPython structure
+# gitkeep — src/plot/ for SuperCalc.OG
+# C sampling engine + fast raster primitives for graphing (Cartesian, polar, etc.)
+# Uses existing picocalcdisplay framebuffer/LUT. 320x320 aware. (Phase 2+)

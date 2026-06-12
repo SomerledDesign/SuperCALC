@@ -1,1 +1,3 @@
-# Placeholder for hybrid C / MicroPython structure
+# gitkeep — mp/apps/ for SuperCalc.OG
+# Built-in apps/scenes: solver, stats, units, constants, etc.
+# All offline. (Phase 2+)

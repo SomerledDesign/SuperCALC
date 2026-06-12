@@ -64,6 +64,18 @@ Record significant architectural, technical, and scope decisions with rationale 
 - Syntax is likely to evolve during Phase 1–2. Python is far faster to change.
 - The expensive work is evaluation + plotting loops — those go to C immediately.
 
+### Phase 0 Hybrid Proof Implementation
+**Decision**: The minimal proof uses a single `picocalc_math` C module (registered with MP_REGISTER_MODULE) exposing version/add/sin/sqrt using mp_obj_{get,new}_float + <math.h>. MPy side has mp/lib/hybrid.py with try/import + pure-math fallback. Host test harness in tests/test_hybrid.py. Empty architectural dirs populated with .gitkeep. ralph.sh extended for `status`/`help`. build_supercalc.sh made actionable.
+
+**Rationale**:
+- Directly satisfies the three remaining Phase 0 deliverables (firmware decision docs, hybrid proof, automation cleanliness).
+- Demonstrates the exact thin-boundary pattern required by PGR and ARCHITECTURE (C for numeric hot paths, MPy for orchestration).
+- Uses standard MicroPython C extension APIs that work with the LofiFren/zenodante USER_C_MODULES flow.
+- Host tests are runnable immediately (fallback); real C path exercised after UF2 flash (human step).
+- No future-phase features (no parsers, no VM, no plotting yet).
+
+**Date**: 2026-06 (Phase 0 inc1)
+
 ## Future Decision Areas (to be filled)
 
 - Exact local variable syntax for the custom language.

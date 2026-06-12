@@ -18,8 +18,8 @@
 ## Workflow (Unattended Ralph Loop)
 
 ### 1. Starting Work on a Phase / Increment
-- Run `python tools/ralph_loop.py status` to confirm current phase and state.
-- Use `python tools/ralph_loop.py set-phase N` only when intentionally advancing (rare mid-phase).
+- Run `./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md <start_phase> <end_phase>` (or just `./tools/ralph.sh` to use defaults).
+- The bash script handles status, phase advancement, and the full Grok → commit → Claude QA loop automatically.
 - Create a branch or just work on `main` (local git for now). Recommended: `git checkout -b phase-N-increment-description`.
 - Implement following the current phase goals in `docs/PHASES.md`.
 
@@ -44,7 +44,7 @@ You must satisfy these **before** calling the automation:
 **Then execute:**
 
 ```bash
-python tools/ralph_loop.py complete-phase \
+# The loop is driven by the bash script (see usage above). After Grok's work is committed, it automatically invokes the local claude CLI with ClaudeQA.md for the audit.
   --message "Phase 1: Core hybrid math engine + expression system (infix + RPN) - C kernel + MPy glue"
 ```
 
@@ -66,7 +66,7 @@ The script will:
 - Address **all** Blockers and Major issues.
 - For Minor/Nits, decide and record in DECISIONS or a reply note.
 - When satisfied (or after fixes), you may mark the phase truly complete or start the next increment of the same phase.
-- Use `python tools/ralph_loop.py approve-phase` (or similar) only after human + Claude consensus if the process evolves.
+- The script checks the Claude report for clearance language ("CLEARED TO CONTINUE", "PHASE COMPLETE - CLEARED TO ADVANCE", etc.) and advances automatically.
 
 ### 6. Advancing to Next Phase
 Only after Claude has given clear approval (or the human explicitly overrides after review) and the current phase is marked done in state + PHASES.md.
@@ -98,7 +98,7 @@ General bar:
 Primary command:
 
 ```bash
-python tools/ralph_loop.py --help
+./tools/ralph.sh --help  (or just run it to see usage)
 ```
 
 Useful subcommands (see script for current list):

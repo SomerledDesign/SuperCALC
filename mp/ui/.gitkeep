@@ -1,1 +1,3 @@
-# Placeholder for hybrid C / MicroPython structure
+# gitkeep — mp/ui/ for SuperCalc.OG
+# MicroPython UI: menus, expression editor, graph viewport + trace, program catalog
+# Leverages picocalc display/keyboard from base firmware. (Phase 1+)
