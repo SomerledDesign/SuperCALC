@@ -87,6 +87,8 @@ In the base port's build system (they use Docker + `micropython.cmake` + `USER_C
 - Keyboard is handled; you get normal input in the terminal/REPL.
 - SD: usually mounted at `/sd`
 
+**Numeric precision note (Phase 1+)**: Our C math (picocalc_math) and hybrid assume `MICROPY_FLOAT_IMPL_DOUBLE` (double precision) in the base MicroPython build for RP2350. The LofiFren Pico 2 W recommended UF2 uses this; if you roll a custom build, verify `mpconfigport.h` or build flags set it (otherwise single-precision will silently reduce accuracy for the hybrid math kernel). See DECISIONS.md "Numeric Baseline".
+
 ## Battery & Power Notes
 
 - The STM32 on the board can report battery status in many custom firmwares (LofiFren port has examples).

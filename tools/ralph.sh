@@ -25,6 +25,15 @@ cd "$PROJECT_DIR"
 
 echo "[ralph] Sandbox: $PROJECT_DIR"
 
+# ── colors (hoisted so subcommands like complete-phase can use ok/fail early) ─────
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
+CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
+
+log()  { echo -e "${CYAN}[ralph]${RESET} $*"; }
+ok()   { echo -e "${GREEN}[ralph]${RESET} $*"; }
+warn() { echo -e "${YELLOW}[ralph]${RESET} $*"; }
+fail() { echo -e "${RED}[ralph]${RESET} $*"; }
+
 # ── argument parsing ────────────────────────────────────────────────────────────
 PGR_FILE="${1:-docs/PGR.md}"
 CLAUDEQA_FILE="${2:-docs/ClaudeQA.md}"
@@ -70,6 +79,141 @@ PYEOF
       echo "════════════════════════════════════════════════════════"
       exit 0
       ;;
+    complete-phase)
+      # Proper complete-phase per PGR.md + Phase 0 success criteria + auditor feedback (M-1).
+      # - requires clean git (enforces "commit cleanly" before handoff)
+      # - generates timestamped handoff/phase-N-...-review-request.md
+      # - updates LOOP_STATE.json (status=awaiting_qa, last_handoff, history note)
+      # - prints copy-paste ready prompt for local claude (per ClaudeQA.md)
+      # Does NOT auto-run claude or the full loop; that is done by `ralph.sh <phases>` or human.
+      local msg="${1:-phase inc complete}"
+      echo "════════════════════════════════════════════════════════"
+      echo "  ralph.sh complete-phase — generate handoff + await QA"
+      echo "════════════════════════════════════════════════════════"
+
+      # 1. Git must be clean (or only untracked we intend to leave)
+      local dirty
+      dirty=$(git status --porcelain 2>/dev/null | grep -E '^(M|A|D|R|C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' | wc -l | tr -d ' ')
+      if [[ "$dirty" -gt 0 ]]; then
+        fail "Git working tree not clean. Commit or stash changes before complete-phase."
+        echo "Dirty (excluding handoffs/ + temps):"
+        git status --porcelain | grep -E '^(M|A|D|R|C|\?\?)' | grep -v 'handoffs/' | grep -v '.ralph/' | grep -v claude_report | grep -v pycache | head -10
+        exit 1
+      fi
+      ok "Git tree clean. Proceeding with handoff."
+
+      local phase
+      phase=$(current_phase)
+      local ts
+      ts=$(date +%Y%m%d-%H%M%S)
+      local hname="phase-${phase}-${ts}-review-request.md"
+      local handoff="handoffs/${hname}"
+      mkdir -p handoffs .ralph
+
+      # Snapshot key state for self-contained handoff
+      local loop_json
+      loop_json=$(cat docs/LOOP_STATE.json 2>/dev/null || echo '{}')
+      local gitlog
+      gitlog=$(git log --oneline -6 2>/dev/null || echo 'n/a')
+      local changed
+      changed=$(git diff --name-only HEAD~1 2>/dev/null | head -30 || git status --porcelain | head -20 || echo 'first commit or n/a')
+
+      # Build rich handoff (modeled on prior examples + ClaudeQA expectations)
+      cat > "$handoff" <<HFD
+# Ralph Loop Handoff — Phase ${phase}
+**Generated**: $(date -Iseconds)
+**Implementer Message**: ${msg}
+**Current LOOP_STATE**:
+\`\`\`json
+${loop_json}
+\`\`\`
+
+## 1. Role Instructions
+**You are Claude acting strictly as the Independent QA Reviewer per \`ClaudeQA.md\`.**
+Read the full ClaudeQA.md (in repo). The implementer followed PGR.md.
+Do not write code. Produce the exact structured review format. End with one of:
+CLEARED TO CONTINUE
+PHASE COMPLETE - CLEARED TO ADVANCE
+NEEDS WORK - DO NOT ADVANCE
+Also write full report to claude_report.txt .
+
+## 2. Phase Goals & Success Criteria
+(Excerpt from docs/PHASES.md for the active phase)
+\`\`\`
+$(sed -n "/^## Phase ${phase} /,/^## /p" docs/PHASES.md | head -60 || echo "(see docs/PHASES.md)")
+\`\`\`
+
+## 3. What Was Delivered (implementer claim)
+${msg}
+
+Key files changed (since prior):
+${changed}
+
+## 4. Git Activity
+\`\`\`
+${gitlog}
+\`\`\`
+
+## 5. Next
+After review: address any Blockers/Majors, then either re-run complete-phase for fixes or (on clearance) let automation/script advance phase.
+HFD
+
+      # Update LOOP_STATE for the handoff
+      python3 - <<PYEOF
+import json, datetime, os
+data = {}
+try:
+    with open("docs/LOOP_STATE.json") as f: data = json.load(f)
+except: pass
+ph = int(data.get("current_phase", ${phase}))
+data["status"] = "awaiting_qa"
+data["last_handoff"] = "handoffs/${hname}"
+hist = data.setdefault("phase_history", [])
+# append note for this handoff if not duplicate
+note = f"Handoff generated: { 'handoffs/${hname}' }"
+if not any(note in str(h) for h in hist[-3:]):
+    if isinstance(hist, list):
+        # best effort append to last entry or add
+        if hist and isinstance(hist[-1], dict):
+            hist[-1].setdefault("notes", []).append(note)
+        else:
+            hist.append({"phase": ph, "notes": [note]})
+data["notes"] = data.get("notes", "") + f"; complete-phase at ${ts}"
+with open("docs/LOOP_STATE.json", "w") as f:
+    json.dump(data, f, indent=2)
+print("LOOP_STATE updated for awaiting_qa")
+PYEOF
+
+      ok "Handoff written: $handoff"
+      echo
+      echo "════════════════════════════════════════════════════════"
+      echo "COPY-PASTE PROMPT FOR CLAUDE (local claude CLI):"
+      echo "════════════════════════════════════════════════════════"
+      cat <<PROMPT
+You are the independent auditor. Follow this ClaudeQA.md document with absolute discipline.
+
+=== ClaudeQA.md ===
+$(cat "$CLAUDEQA_FILE" 2>/dev/null || echo "(ClaudeQA.md not readable here; use file)")
+=== END ClaudeQA.md ===
+
+This is the handoff after implementer work on Phase ${phase}.
+Handoff file: ${handoff}
+Recent git:
+${gitlog}
+
+Perform a full QA review per ClaudeQA.md.
+Write a complete structured report to claude_report.txt .
+At the end of your report, on its own line, output exactly one of:
+CLEARED TO CONTINUE
+PHASE COMPLETE - CLEARED TO ADVANCE
+NEEDS WORK - DO NOT ADVANCE
+Print a one-line summary at the very end.
+PROMPT
+      echo "════════════════════════════════════════════════════════"
+      echo "Then (after claude writes claude_report.txt): ./tools/ralph.sh status"
+      echo "The loop (ralph.sh <start> <end>) will auto-detect clearance on next full run."
+      exit 0
+      ;;
     help|--help|-h)
       cat <<'EOF'
 ralph.sh — SuperCalc.OG unattended Ralph Loop driver
@@ -78,12 +222,17 @@ Usage:
   ./tools/ralph.sh                                   # run full loop (phases 0-7)
   ./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md 0 0  # run specific phase range (e.g. just 0)
   ./tools/ralph.sh status                            # print current loop state, git, handoffs
+  ./tools/ralph.sh complete-phase "short description of increment"
   ./tools/ralph.sh help
+
+complete-phase: checks git clean, writes handoffs/phase-N-...-review-request.md,
+updates LOOP_STATE to awaiting_qa, prints ready-to-paste claude prompt.
+Use this (not full ralph run) when you have manually implemented per PGR.
 
 The script drives Grok (implementer per PGR.md) then Claude (QA per ClaudeQA.md).
 It updates LOOP_STATE.json and produces handoffs/ on increments.
 
-See docs/PGR.md for workflow and success criteria (status must run cleanly, etc).
+See docs/PGR.md for workflow and success criteria (status + complete-phase must run cleanly, etc).
 EOF
       exit 0
       ;;
@@ -91,9 +240,9 @@ EOF
 }
 
 # Detect if first positional after implicit is a subcommand (or if PGR was defaulted but 1st arg looks like cmd)
-if [[ "$PGR_FILE" == "status" || "$PGR_FILE" == "help" || "$PGR_FILE" == "--help" || "$PGR_FILE" == "-h" || "$PGR_FILE" == "--status" ]]; then
+if [[ "$PGR_FILE" == "status" || "$PGR_FILE" == "help" || "$PGR_FILE" == "--help" || "$PGR_FILE" == "-h" || "$PGR_FILE" == "--status" || "$PGR_FILE" == "complete-phase" ]]; then
   handle_subcommand "$PGR_FILE"
-elif [[ "$START_PHASE" == "status" || "$START_PHASE" == "help" || "$START_PHASE" == "--help" || "$START_PHASE" == "-h" || "$START_PHASE" == "--status" ]]; then
+elif [[ "$START_PHASE" == "status" || "$START_PHASE" == "help" || "$START_PHASE" == "--help" || "$START_PHASE" == "-h" || "$START_PHASE" == "--status" || "$START_PHASE" == "complete-phase" ]]; then
   handle_subcommand "$START_PHASE"
 fi
 
@@ -107,15 +256,6 @@ if [[ ! -f "$CLAUDEQA_FILE" ]]; then
 fi
 
 MAX_RETRIES=3
-
-# ── colors ──────────────────────────────────────────────────────────────────────
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
-CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
-
-log()  { echo -e "${CYAN}[ralph]${RESET} $*"; }
-ok()   { echo -e "${GREEN}[ralph]${RESET} $*"; }
-warn() { echo -e "${YELLOW}[ralph]${RESET} $*"; }
-fail() { echo -e "${RED}[ralph]${RESET} $*"; }
 
 # ── helpers ─────────────────────────────────────────────────────────────────────
 current_phase() {
@@ -134,8 +274,10 @@ except:
 }
 
 phase_cleared() {
-  # Look for positive clearance language (customize as needed in ClaudeQA.md)
-  grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE|CLEARED TO ADVANCE|APPROVED" claude_report.txt 2>/dev/null
+  # Strict clearance signals only. "APPROVED" was removed because it appears in
+  # "APPROVED WITH MINORS" reviews that still end with "NEEDS WORK - DO NOT ADVANCE".
+  # This prevents false-positive phase advancement.
+  grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE|CLEARED TO ADVANCE" claude_report.txt 2>/dev/null
 }
 
 run_grok() {
@@ -220,36 +362,35 @@ run_claude_qa() {
   local phase="$1"
   log "Running Claude (auditor) — Phase ${phase}..."
 
-  local claude_prompt
-  claude_prompt="You are the independent auditor. Follow this ClaudeQA.md document with absolute discipline.
+  # Lean prompt: tell claude to read the actual files from the workspace using its tools.
+  # This avoids embedding the entire ClaudeQA.md + huge context every time (the main cause of timeouts/hangs).
+  local claude_prompt="You are the independent auditor. Follow exactly the instructions in the file docs/ClaudeQA.md (use the Read tool on it).
 
-=== ClaudeQA.md ===
-$(cat "$CLAUDEQA_FILE")
-=== END ClaudeQA.md ===
+Current phase: ${phase}
 
-This is the handoff after Grok's work on Phase ${phase}.
+Handoff for this increment:
+- Recent changes: run Bash(git log --oneline -5) and Bash(git diff HEAD~1 --name-only) to see what Grok just did.
+- Read the most recent handoff file: ls handoffs/phase-0-*.md | tail -1 then Read it.
+- If claude_report.txt exists, read the prior attempt.
 
-Recent git activity:
-$(git log --oneline -5 2>/dev/null || echo 'no log')
-
-Grok's work is in the current working tree (the changes since the last commit before this increment).
-
-Perform a full QA review per the instructions in ClaudeQA.md.
-Write a complete structured report.
-At the end of your report, on its own line, output exactly one of these:
+Produce the FULL structured Ralph Loop QA Review report (use the exact format from ClaudeQA.md).
+Write the complete report to claude_report.txt (overwrite the file).
+At the very end of claude_report.txt (on its own line) output exactly one of:
 CLEARED TO CONTINUE
 PHASE COMPLETE - CLEARED TO ADVANCE
 NEEDS WORK - DO NOT ADVANCE
 
-Also write the full report to claude_report.txt in the project root.
-Print a one-line summary at the very end."
+Also print a short one-line summary to stdout at the end."
 
-  if ! claude --dangerously-skip-permissions -p "$claude_prompt" > claude_report.txt 2>&1; then
-    fail "Claude QA CLI exited with error on Phase ${phase}."
+  # Use timeout to prevent hard hangs. Claude Code can be slow on first reads but should not hang forever.
+  # The --dangerously-skip-permissions helps with non-interactive runs.
+  if ! timeout 180 claude --dangerously-skip-permissions -p "$claude_prompt" >> claude_report.txt 2>&1; then
+    echo "[ERROR] Local Claude review timed out or failed on Phase ${phase}." >> claude_report.txt
+    fail "Claude QA CLI timed out or errored on Phase ${phase}."
     return 1
   fi
 
-  ok "Claude QA complete for Phase ${phase}. Report in claude_report.txt"
+  ok "Claude QA complete for Phase ${phase}. Report appended to claude_report.txt"
 }
 
 # ── main loop ──────────────────────────────────────────────────────────────────

@@ -47,17 +47,36 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 - [x] Minimal custom C module skeleton proven to build and be callable from MPy (hybrid proof) — src/math/picocalc_math.c + micropython.cmake + mp/lib/hybrid.py + host harness + .gitkeeps for full src/mp layout + improved ralph.sh status + build wrapper
 
 **Success Criteria**:
-- Automation script runs cleanly (`status`, `complete-phase` demo).  [x] status + help now functional; ralph.sh supports PGR workflow.
+- Automation script runs cleanly (`status`, `complete-phase` demo).  [x] status + help + complete-phase implemented and functional per PGR + fixes for M-1/M-2 from Phase 0 QA. complete-phase now checks git clean, writes proper handoff, updates state, prints claude prompt.
 - User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification
-- First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt, thin MPy wrapper, host test harness exercising fallback, full dir skeleton with .gitkeeps, build wrapper updated. (C path verified on-device by human after flash.)
+- First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt (Phase 0), extended in Phase 1 inc1.
 
-**Current Status**: Phase 0 foundation + hybrid proof substantially complete in code + tooling. Automation improved. Dirs concrete. Awaiting hardware smoke (import picocalc_math + run hybrid smoke on real PicoCalc + Pico 2 W). See handoff for details.
+**Current Status**: Phase 0 foundation complete in code/tooling. complete-phase + clearance logic fixed. Automation now matches PGR expectations. Awaiting hardware smoke on real PicoCalc. Phase 1 inc1 work has begun (see below). See handoffs/ and claude_report for history.
 
 ## Phase 1 — Core Math Engine & Expression System
 
-(See full details in earlier version of this file or ARCHITECTURE.md. Goals remain: hybrid numeric + symbolic hooks, infix + RPN parsers, C kernel for speed/accuracy, basic evaluator, stack + variables.)
+**Goal**: First usable hybrid numeric engine with infix + RPN expression evaluation, C kernel for compute, basic stack discipline, and variable store (RCL/STO). Thin boundary: parsers + env in MPy (mp/lang/expr.py), hot eval + primitives in C (picocalc_math rpn_eval + ops).
 
-**Automation Note**: When work on Phase 1 increments is ready, use `complete-phase` to hand off to Claude. Do not advance to Phase 2 until this phase gate is cleared.
+**Deliverables for inc1 (small verifiable slice)**:
+- [x] Extended C kernel: version bump, add/sub/mul/div, cos/tan/exp/log/pow/fabs + domain checks, rpn_eval (C stack machine supporting HP-style ops + stack words dup/drop/swap/over/neg).
+- [x] hybrid.py updated with new leafs + rpn_eval (with matching pure-py fallback for host).
+- [x] mp/lang/expr.py : to_rpn (shunting lite for infix), eval_infix (vars + predefs like pi), eval_rpn / eval_rpn_str with sto/rcl mutating env + stack ops, using hybrid for numeric apply.
+- [x] Host tests: test_hybrid.py extended, new tests/test_expr.py (all pass on fallback).
+- [x] ralph.sh complete-phase implemented + phase_cleared fixed (addressed Phase 0 QA B-1/M-1/M-2).
+- [x] Docs: PHASES/DECISIONS/BRINGUP updated; DECISIONS records choices.
+- [ ] On-device smoke (import + expr smoke on real hardware) — human step after UF2.
+- [ ] Hardware verification recorded via ralph or manually.
+
+**Success Criteria (inc1)**:
+- Host tests for infix, rpn, stack ops, variables, errors all green.
+- rpn_eval path exercised via C when built (on device); fallback verified.
+- Git clean at handoff; complete-phase produces usable handoff + prompt.
+- No scope creep (no plotting, no full VM/programs, no graphing yet).
+- DECISIONS + PHASES reflect reality.
+
+**Automation Note**: When work on Phase 1 increments is ready, use `./tools/ralph.sh complete-phase "msg"` to hand off to Claude. Do not advance to Phase 2 until this phase gate is cleared by auditor + human.
+
+**Current inc1 status**: Host-complete, C+MPy glue + parsers + tests in place. Awaiting hardware confirmation + auditor review. See commit phase-1-inc1.
 
 ## Later Phases (High Level)
 
@@ -83,6 +102,6 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 0 — Foundation & Unattended Loop Setup
+**Current Phase (per LOOP_STATE.json)**: 1 — Core Math Engine & Expression System (inc1 in progress)
 
-Update this file's phase sections and status when the automation indicates a gate has been passed.
+Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0 automation now passes with complete-phase; hardware + final clearance pending.)

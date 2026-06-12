@@ -27,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from mp.lib.hybrid import HAS_C_MATH, version, add, sin, sqrt
+from mp.lib.hybrid import HAS_C_MATH, version, add, sub, mul, div, sin, cos, tan, sqrt, exp, log, pow as hpow, fabs, rpn_eval
 
 EPS = 1e-12
 
@@ -69,6 +69,54 @@ def test_has_c_math_note():
     # On host dev machine this is False; documents the boundary.
     print(f"OK HAS_C_MATH={HAS_C_MATH} (expected False on host; True only in custom device build)")
 
+def test_new_math():
+    import math
+    assert approx(sub(5, 2), 3.0)
+    assert approx(mul(2, 3), 6.0)
+    assert approx(div(10, 4), 2.5)
+    assert approx(cos(0), 1.0)
+    assert approx(tan(math.pi/4), 1.0, 1e-9)
+    assert approx(exp(0), 1.0)
+    assert approx(log(math.e), 1.0, 1e-9)
+    assert approx(hpow(2, 3), 8.0)
+    assert approx(fabs(-3.5), 3.5)
+    # div0
+    try:
+        div(1, 0)
+        assert False
+    except ValueError:
+        pass
+    print("OK new math (sub/mul/div/trig/exp/log/pow/fabs)")
+
+def test_rpn_eval():
+    import math
+    # basic
+    assert approx(rpn_eval([2, 3, "+"]), 5.0)
+    assert approx(rpn_eval([2, 3, "*"]), 6.0)
+    assert approx(rpn_eval([10, 4, "/"]), 2.5)
+    assert approx(rpn_eval([2, 3, "pow"]), 8.0)
+    # trig etc
+    assert approx(rpn_eval([0, "sin"]), 0.0)
+    assert approx(rpn_eval([math.pi/2, "cos"]), 0.0, 1e-9)
+    assert approx(rpn_eval([9, "sqrt"]), 3.0)
+    # stack ops
+    assert approx(rpn_eval([5, "dup", "+"]), 10.0)
+    assert approx(rpn_eval([1, 2, "swap", "-"]), 1.0)  # 1 2 swap -> 2 1  => 2-1=1
+    # chain expr e.g. 2 3 + 4 *  => (2+3)*4 =20
+    assert approx(rpn_eval([2, 3, "+", 4, "*"]), 20.0)
+    # error cases
+    try:
+        rpn_eval([1, "+"])
+        assert False
+    except ValueError:
+        pass
+    try:
+        rpn_eval([1, 0, "/"])
+        assert False
+    except ValueError:
+        pass
+    print("OK rpn_eval (ops + stack manip + errors)")
+
 def main():
     print("SuperCalc.OG hybrid test harness (host fallback path)")
     print("---")
@@ -76,6 +124,8 @@ def main():
     test_add()
     test_sin()
     test_sqrt()
+    test_new_math()
+    test_rpn_eval()
     test_has_c_math_note()
     print("---")
     print("ALL TESTS PASSED (host harness)")

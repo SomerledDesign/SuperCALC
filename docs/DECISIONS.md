@@ -76,14 +76,48 @@ Record significant architectural, technical, and scope decisions with rationale 
 
 **Date**: 2026-06 (Phase 0 inc1)
 
-## Future Decision Areas (to be filled)
+## 2026-06 (Phase 0 QA fixes carried into Phase 1 inc1)
 
-- Exact local variable syntax for the custom language.
-- Whether to offer a pure keystroke programming mode in addition to text RPL-style.
-- Depth of units system (full dimensional analysis vs. simple tagged units).
-- How much CAS surface we expose directly vs. through eigenmath calls.
-- Default view window and zoom behavior for graphing (HP-like vs. Desmos-like).
-- Whether the custom firmware will be a single "everything" UF2 or a base + loadable modules model.
+### Loop Automation Hygiene (ralph.sh)
+**Decision**: Implemented `complete-phase` subcommand (git-clean gate, timestamped rich handoff in handoffs/, LOOP_STATE update to awaiting_qa, prints self-contained copy-paste claude prompt using ClaudeQA). Also removed bare `APPROVED` from phase_cleared() grep (false-positive risk), fixed string length in C using strlen().
+
+**Rationale**:
+- Directly addresses the three must-fix items (B-1 string, M-1 complete-phase missing, M-2 false-positive) from the Phase 0 auditor report.
+- Makes the unattended loop match the documented PGR.md contract and Phase 0 success criteria.
+- strlen() pattern prevents recurrence of length bugs as more C string returns are added in later phases.
+- complete-phase lets implementer produce clean handoff artifact + state without always running the full Grok+Claude auto loop.
+
+**Date**: 2026-06 (Phase 1 inc1)
+
+### Minor Hygiene
+- build_supercalc.sh front-matter now clearly labels itself a stub (was misleading "Building..." on first line).
+- BRINGUP.md now documents the MICROPY_FLOAT_IMPL_DOUBLE assumption for the numeric baseline.
+
+## 2026-06 Phase 1 inc1 — Core Math + Expression System (first slice)
+
+### Expression System Split (C kernel + MPy parsers)
+**Decision**: Infix parser + RPN driver with variable env (sto/rcl) implemented in pure MicroPython (mp/lang/expr.py). Numeric hot path (all math primitives + full rpn_eval stack machine with HP ops) in C (src/math/picocalc_math.c: rpn_eval + added cos/tan/exp/log/pow/fabs/sub/mul/div). hybrid.py provides the transparent boundary + py fallback.
+
+**Rationale**:
+- Matches the "Parser Location (Initial)" decision: parsers in MPy for fast iteration/syntax experiments during Phase 1.
+- Puts the inner dispatch, stack ops during evaluation, and FPU math where they belong (C) for speed/accuracy/determinism on RP2350.
+- rpn_eval in C is the first "expression system" C kernel; thin list-of-tokens API keeps boundary simple and auditable.
+- Stack words (dup/drop/swap/over) + neg/chs give immediate RPL/HP spirit even before the full src/core VM.
+- Variables/env side effects kept in MPy (sto/rcl mutate caller-provided dict) — keeps C pure-compute and simple; full locals will evolve with the language VM in later incs.
+- Host tests exercise the fallback identically; same code paths on device will hit C.
+
+**Alternatives considered**:
+- Full RPN interp in MPy only: rejected for Phase 1 because it would not exercise/prove the C kernel path required by architecture and "C for hot paths".
+- Moving shunting-yard to C too: rejected — syntax is still evolving; Python is far cheaper to change while we discover the language feel.
+
+**Date**: 2026-06 Phase 1 inc1
+
+### Numeric Surface for inc1
+**Decision**: Added the practical scientific set (trig, log/exp, pow, fabs) + four basic arithmetic + rpn control words. No complex, no matrices, no stats yet.
+
+**Rationale**: Small verifiable slice that is already useful for real calculations on the device, exercises the new rpn_eval C entry point, and gives the expression layer something non-trivial to drive. More (atan2, hypot, gamma, etc.) will come as needed by graphing or solver work.
+
+**Date**: 2026-06 Phase 1 inc1
 
 ---
 

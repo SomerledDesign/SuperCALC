@@ -14,7 +14,8 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT"
 
-echo "[SuperCalc.OG] Building custom MicroPython UF2 with our C modules (hybrid proof present)..."
+echo "[SuperCalc.OG] build_supercalc.sh — STUB (documents the process; does not yet run Docker/make)."
+echo "[SuperCalc.OG] The hybrid proof files exist; real UF2 requires the base port (see BRINGUP.md)."
 
 # Recommended flow (LofiFren/PicoCalc, Pico 2 W):
 # 1. Clone base (outside this tree):

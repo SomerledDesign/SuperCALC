@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 0 — Foundation + hybrid proof (C module skeleton + thin MPy boundary + host harness + automation + dir structure). Ralph Loop engaged. Awaiting hardware confirmation.
+**Status**: Phase 1 inc1 — Core hybrid math engine + expression system (infix + RPN parsers in mp/lang/expr.py, C rpn_eval kernel + extended primitives in src/math/picocalc_math, stack ops + vars, host tests). Ralph Loop engaged (complete-phase + clearance fixes applied). Phase 0 foundation complete; hardware smoke + auditor review pending. Awaiting device flash verification.
 
 ## Vision
 
