@@ -10,6 +10,13 @@ MPy layer (rapid iteration per DECISIONS):
 C (picocalc_math): rpn_eval for pure-numeric hot paths + all math primitives.
 Offline first. No network. Double baseline.
 
+Entry point notes (see m-3 in Phase 1 inc1 QA):
+- eval_infix() -> to_rpn() -> resolves vars -> calls hybrid.rpn_eval() (C batch hot path when available).
+- eval_rpn() / eval_rpn_str() maintain Python stack + call individual hybrid leafs (add/sin/neg/dup etc) for each op.
+  This is required because sto/rcl/vars/env side-effects and stack words must be handled in MPy.
+  The C rpn_eval stack machine is exercised by eval_infix (and directly in tests/ on device).
+  Future phases (VM) should not assume eval_rpn() itself is the C-accelerated batch path.
+
 Usage (host or device after flash):
   from mp.lang.expr import eval_infix, eval_rpn, to_rpn
   print(eval_infix("2 + 3 * sin(pi/2)"))   # uses predefined 'pi'
@@ -59,7 +66,11 @@ def to_rpn(infix: str):
     prev_was_op_or_start = True  # for unary minus detection
 
     def push_op(op):
-        while op_stack and op_stack[-1] != "(" and _precedence(op_stack[-1]) >= _precedence(op):
+        _right_assoc = {"^", "pow"}
+        while op_stack and op_stack[-1] != "(" and (
+            _precedence(op_stack[-1]) > _precedence(op) or
+            (_precedence(op_stack[-1]) == _precedence(op) and op not in _right_assoc)
+        ):
             out.append(op_stack.pop())
         op_stack.append(op)
 
@@ -140,7 +151,7 @@ def to_rpn(infix: str):
 
 def _precedence(op):
     if op in ("neg",):
-        return 4
+        return 2.5  # between * (2) and ^ (3): unary- < power (for -2^2 = -(2^2)), > * / + - (so -2*3 = (-2)*3)
     if op in ("^", "pow"):
         return 3
     if op in ("*", "/",):
@@ -230,7 +241,7 @@ def eval_rpn(tokens, env=None):
             continue
         # numeric or stack op: delegate as much as possible to hybrid (C)
         # For single op we feed a  mini rpn list
-        if op in ("+", "-", "*", "/", "^", "pow", "sin", "cos", "tan", "sqrt", "log", "exp", "fabs", "abs", "neg", "chs", "dup", "drop", "swap", "over"):
+        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "exp", "fabs", "abs", "neg", "chs", "dup", "drop", "swap", "over"):
             # build a 1 or 2 (or 0 for dup etc) arg mini program from current stack state
             # simplest: use leaf calls for numeric, direct manip for stack
             if op in ("dup", "drop", "swap", "over"):
@@ -321,7 +332,7 @@ def eval_rpn_str(rpn_text: str, env=None):
     """Accepts space separated like '2 3 + 4 *' or with names '3.14 sto pi rcl pi 2 *'."""
     toks = []
     for part in rpn_text.strip().split():
-        if part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs") or part in _FUNC_NAMES or part in "+-*/^":
+        if part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs") or part in _FUNC_NAMES or part in "+-*/^":
             toks.append(part)
         else:
             # number or bare var? treat bare idents after sto/rcl as names, but for general, if not num try var later

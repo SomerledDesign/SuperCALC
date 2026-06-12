@@ -111,6 +111,27 @@ def test_errors():
         pass
     print("OK error cases (mismatch, underflow, div0, undef var)")
 
+def test_precedence_associativity():
+    # M-1 / M-2 fixes: HP-standard and math convention
+    # -2^2 must be -(2^2) == -4 (not (-2)^2 == 4)
+    assert approx(eval_infix("-2^2"), -4.0)
+    # 2^2^3 must be 2^(2^3) == 256 (not (2^2)^3 == 64)
+    assert approx(eval_infix("2^2^3"), 256.0)
+    # also 2^3^2 == 2^9 == 512 for extra
+    assert approx(eval_infix("2^3^2"), 512.0)
+    # mixed to confirm unary vs mul etc still correct
+    assert approx(eval_infix("-2*3"), -6.0)
+    assert approx(eval_infix("-2+3"), 1.0)
+    print("OK precedence: unary- < ^ (right-assoc), > * / + -")
+
+def test_rpn_str_aliases():
+    # m-2: op name aliases must work in the convenience str API
+    assert approx(eval_rpn_str("2 3 add"), 5.0)
+    assert approx(eval_rpn_str("2 3 pow"), 8.0)
+    assert approx(eval_rpn_str("2 3 mul 4 add"), 10.0)
+    assert approx(eval_rpn_str("9 sqrt 2 pow"), 9.0)  # (sqrt9)^2
+    print("OK eval_rpn_str op aliases (add sub mul div pow)")
+
 def main():
     print("SuperCalc.OG expr test harness (Phase 1) — host fallback path")
     print(f"HAS_C_MATH={HAS_C_MATH} (C rpn_eval used only on device)")
@@ -123,6 +144,8 @@ def main():
     test_rpn_with_vars()
     test_eval_rpn_str()
     test_errors()
+    test_precedence_associativity()
+    test_rpn_str_aliases()
     print("---")
     print("ALL EXPR TESTS PASSED")
     if not HAS_C_MATH:
