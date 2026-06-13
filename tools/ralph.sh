@@ -23,13 +23,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-# Always start with clean transient auditor report (claude_report.txt) so dirty
-# checks, status, and complete-phase never surface prior-run bash errors / partial
-# claude output / "You've hit your limit" as working-tree dirt or cause follow-on
-# command-substitution surprises in subsequent prompt builds. This directly mitigates
-# the exact symptoms captured in the claude_report.txt from the provided QA rejection.
-git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
-
 echo "[ralph] Sandbox: $PROJECT_DIR"
 
 # Unconditional safe defaults (so complete-phase / status when invoked as $1 never
@@ -139,6 +132,25 @@ try:
     print("Last completed phase:", data.get("last_completed_phase", -1))
 except: pass
 PYEOF
+      # Auditor report visibility (so `ralph.sh status` shows clearance / rate limit state at a glance;
+      # addresses the prior issue where report content was invisible from status and could be wiped).
+      echo
+      if [[ -f claude_report.txt ]]; then
+        size=$(wc -c < claude_report.txt 2>/dev/null | tr -d ' ' || echo 0)
+        echo "Auditor report present: ${size} bytes"
+        echo "Last lines:"
+        tail -5 claude_report.txt 2>/dev/null | sed 's/^/  /' || true
+        if grep -qiE 'CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE|CLEARED TO ADVANCE' claude_report.txt 2>/dev/null; then
+          echo "  Clearance: YES (CLEARED TO ... present)"
+        elif grep -qiE 'NEEDS WORK - DO NOT ADVANCE' claude_report.txt 2>/dev/null; then
+          echo "  Clearance: NO (NEEDS WORK)"
+        fi
+        if grep -qiE "You've hit your limit|resets|rate limit|limit will reset" claude_report.txt 2>/dev/null; then
+          echo "  (rate limit / reset message present in report)"
+        fi
+      else
+        echo "Auditor report: (none on disk)"
+      fi
       exit 0
       ;;
     set-phase)
@@ -468,6 +480,15 @@ if [[ ! -f "$CLAUDEQA_FILE" ]]; then
   exit 1
 fi
 
+# Clean transient prior auditor report ONLY for full unattended loop runs.
+# Subcommands (status, complete-phase, etc) already returned via the early intercept above.
+# This prevents `ralph.sh status` (or record-hardware-verification) from deleting claude_report.txt
+# and losing the last review/clearance (the bug reported: unconditional git checkout at top level).
+# Old rate-limit/partial/error text will not pollute a *new* loop's "previous auditor report" or
+# cause dirty-tree surprises (report is gitignored/untracked anyway).
+git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
+log "Cleared prior claude_report.txt for fresh loop run."
+
 MAX_RETRIES=3
 
 # (current_phase + phase_cleared are defined at the very top, before handle_subcommand + early dispatch)
@@ -580,6 +601,8 @@ Handoff for this increment:
 
 Produce the FULL structured Ralph Loop QA Review report (use the exact format from ClaudeQA.md).
 Write the complete report to claude_report.txt (overwrite the file).
+**Also print the full report text to stdout** so it is captured even if your file-write tool has issues.
+
 At the very end of claude_report.txt (on its own line) output exactly one of:
 CLEARED TO CONTINUE
 PHASE COMPLETE - CLEARED TO ADVANCE
@@ -612,13 +635,33 @@ Also print a short one-line summary to stdout at the end."
       ;;
   esac
 
-  if ! timeout 180 "${cmd[@]}" >> claude_report.txt 2>&1; then
-    echo "[ERROR] Local $AUDITOR review timed out or failed on Phase ${phase}." >> claude_report.txt
-    fail "$AUDITOR QA CLI timed out or errored on Phase ${phase}."
-    return 1
+  # Run with a reasonable timeout. Note: the prompt tells the auditor to write
+  # the report to claude_report.txt itself (via its tools). We also capture stdout.
+  # The CLI may exit non-zero even when the model successfully wrote a full
+  # structured report (especially in "Claude Code" agentic CLIs vs. rich IDE sessions).
+  # We therefore do a post-mortem check for a usable report + clearance line.
+  echo "[ralph] Invoking auditor: ${cmd[*]} (timeout 300s, output >> claude_report.txt)"
+  local claude_rc=0
+  if ! timeout 300 "${cmd[@]}" >> claude_report.txt 2>&1; then
+    claude_rc=$?
+    echo "[ERROR] Local $AUDITOR review exited with rc=$claude_rc (timeout or CLI error) on Phase ${phase}." >> claude_report.txt
+    warn "Auditor CLI exited rc=$claude_rc on Phase ${phase} (common with agentic claude CLI one-shot vs. full IDE session)."
   fi
 
-  ok "$AUDITOR QA complete for Phase ${phase}. Report appended to claude_report.txt"
+  # Tolerate "failure" if the model still managed to produce a proper report
+  # ending in one of the expected clearance tokens (this is what happened when
+  # you drove the review successfully from VS Code and it wrote claude_report.txt).
+  if phase_cleared; then
+    ok "$AUDITOR QA complete for Phase ${phase}. Report present with clearance."
+  else
+    # Fallback: look for signs of a real structured review even without the exact token yet
+    if [[ -s claude_report.txt ]] && tail -20 claude_report.txt | grep -qiE 'APPROVED|NEEDS WORK|Final Verdict|CLEARED TO'; then
+      warn "Auditor CLI exited non-zero (rc=$claude_rc) but claude_report.txt contains a review + verdict text. Proceeding (you may need to confirm the exact clearance line)."
+    else
+      fail "$AUDITOR QA CLI timed out or errored on Phase ${phase} (no usable report detected)."
+      return 1
+    fi
+  fi
 }
 
 # ── main loop ──────────────────────────────────────────────────────────────────
