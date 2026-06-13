@@ -228,4 +228,14 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Alternatives considered**: (a) Force a manual handoff file without using complete-phase (rejected: violates PGR "never declare victory yourself" and "use the automation"); (b) strip all markdown from inlines or rewrite handoff as json (overkill; the safe cat + limit keeps the self-contained copy-paste experience that ClaudeQA and PGR expect); (c) ignore and proceed to "new code" on plot (rejected: instruction explicitly says address auditor issues first, before writing new code).
 **Date**: 2026-06 Phase 3 fix3 / retry 3
 
-Add entries at the end of each phase or when a significant choice is locked. Include date, decision, rationale, and alternatives considered.
+### Phase 3 inc1: ascii_plot host text renderer for sampled data
+**Decision**: Added `mp.plot.ascii_plot(points, width=64, height=16, title="")` (and exported) as a tiny pure-Py renderer that turns cartesian_sample output into a framed ascii art plot ( * marks, auto scale, NaN skip, footer ranges, title). Used in 4 new host tests; callable from REPL/scripts on device or host for immediate visual confirmation of curves (sin, x^2 via Program body, etc). Downsamples 320 samples to narrow terminal width. No pixels, no C, no device framebuffer or ui/ modules touched.
+
+**Rationale**: Delivers on "small, verifiable slice" + "host tests first" + "data (usable for later render or host print)" from PHASES inc1 success criteria. Gives the implementer/auditor a concrete way to see that sampling + Program integration + error-nan paths produce correct shapes on the development machine *before* any UF2 or hardware pixels (which remain human step). Fits 320x320 awareness (default n noted). Thin, zero-dependency, RPL-spirit (graphing first-class programs works in the ascii path). Zero scope creep: still no raster, no polar, no interactive, C skel untouched.
+
+**Alternatives considered**:
+- Rely only on numeric assert in tests (rejected: harder to spot visual shape bugs like inverted axis or bad scaling at a glance).
+- Put ascii in tests/ only (rejected: useful as public data utility for users experimenting on device REPL before inc2 UI; small enough to ship in the slice).
+- Full curses/colored (rejected: overkill for inc1; breaks "simple" + offline + works in basic terminal).
+
+**Date**: 2026-06 Phase 3 inc1 (this attempt)

@@ -194,7 +194,7 @@ Update this file's phase sections and status when the automation indicates a gat
 
 **Automation Note**: Use `./tools/ralph.sh complete-phase "phase-3-inc1: plot data skel + C module + prior QA hygiene"` for handoff. Hardware for graphing (and backlog) is human gate before Phase 3 full or Phase 4.
 
-**Current inc1 status**: Host implementation + tests + docs complete. Added linspace(xmin,xmax,n) grid helper (used by cartesian_sample, exported, tested, 320-aware) as small verifiable data slice addition; all 10 tests green + cross tests. C skeleton + hybrid ready for UF2. Sampling reuses expr/hybrid faithfully (RPL feel for user fns). Awaiting hardware smoke + UF2 with plot module. Use ralph complete-phase.
+**Current inc1 status**: Host implementation + tests + docs complete. Added linspace + ascii_plot (text renderer for sampled points; 4 new tests exercising NaN/flat/empty/Program bodies/320-downsample); now 14 tests green. ascii_plot gives immediate host-printable curve verification (REPL/device terminal) while keeping pure data scope (no pixels/raster/C impl). C skeleton + hybrid + expr reuse faithful. 320x320 aware. Awaiting hardware smoke + UF2 with plot module. Use ralph complete-phase.
 
 **Phase 3 Success Criteria (overall phase, for later incs)**:
 - Runnable on-device: plot a Cartesian expression or simple program from REPL or minimal UI, see points or (inc2+) pixels on 320x320.

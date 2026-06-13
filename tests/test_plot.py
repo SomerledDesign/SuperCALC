@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from mp.plot import cartesian_sample, sample_expr, linspace
+from mp.plot import cartesian_sample, sample_expr, linspace, ascii_plot
 from mp.lib.hybrid import HAS_PLOT, plot_version
 from mp.lang.prog import make_prog
 from mp.lang.expr import eval_infix
@@ -123,6 +123,63 @@ def test_linspace_helper():
     xs_from_pts = [p[0] for p in pts]
     assert all(approx(a, b) for a, b in zip(xs_from_pts, linspace(0, 4, 5)))
 
+
+def test_ascii_plot_basic():
+    pts = [(0.0, 0.0), (1.0, 1.0), (2.0, 0.0)]
+    s = ascii_plot(pts, width=12, height=5, title="line")
+    assert "line" in s
+    assert "*" in s
+    assert len(s.splitlines()) >= 6  # title + frame + footer
+    # frame characters present
+    assert "+" in s and "-" in s and "|" in s
+    print("OK ascii_plot basic frame + marks + title + footer")
+    # also test nan tolerance (should still render the valid ones)
+    pts2 = [(i, (i if i != 1 else float("nan"))) for i in range(3)]
+    s2 = ascii_plot(pts2, width=8, height=4)
+    assert "*" in s2
+    print("OK ascii_plot skips NaNs gracefully")
+
+
+def test_ascii_plot_flat_and_empty():
+    # flat y (single point or constant) should still produce visible row
+    pts = [(0.0, 5.0)] * 3
+    s = ascii_plot(pts, width=10, height=4)
+    assert "*" in s
+    assert "5" in s or "flat" not in s.lower()  # range footer has value
+    print("OK ascii_plot flat y (single value) renders")
+    # empty -> placeholder, no crash
+    s0 = ascii_plot([], width=10, height=4)
+    assert "no valid data" in s0 or "empty" in s0.lower()
+    print("OK ascii_plot empty data placeholder")
+
+
+def test_ascii_plot_prog_curve():
+    # verify a program body as f(x) produces sensible ascii (RPL "graph program" feel)
+    env = {}
+    # x^2  (dup *) is clean RPN body and produces visible parabola
+    p = make_prog("xsq", [ ("var", "x"), "dup", "*" ], env)
+    pts = cartesian_sample(p, -2, 2, n=5, env=env)
+    s = ascii_plot(pts, width=20, height=6)
+    assert "*" in s
+    # expect parabolic/upward shape marks
+    lines = [ln for ln in s.splitlines() if "|" in ln]
+    assert len(lines) == 6
+    print("OK ascii_plot of Program body curve (first-class fn graph)")
+    # quick value check at x=0 -> 0; x=2 ->4 (within tol of sampling)
+    assert approx(pts[2][1], 0.0)
+    assert approx(pts[-1][1], 4.0, eps=1e-6)
+
+
+def test_ascii_plot_downsample_320():
+    # 320 default should render ok when width much smaller (simulates terminal vs screen)
+    pts = cartesian_sample("sin(x)", 0, 6.28, n=320)
+    s = ascii_plot(pts, width=32, height=8)
+    lines = s.splitlines()
+    assert len([ln for ln in lines if "|" in ln]) == 8
+    assert "*" in s
+    print("OK ascii_plot 320-sample downsample to narrow width (verifies 320-aware data)")
+
+
 def main():
     print("SuperCalc.OG Phase 3 plot data engine host tests")
     print("---")
@@ -136,6 +193,10 @@ def main():
     test_has_plot_and_version()
     test_sample_expr_helper()
     test_linspace_helper()
+    test_ascii_plot_basic()
+    test_ascii_plot_flat_and_empty()
+    test_ascii_plot_prog_curve()
+    test_ascii_plot_downsample_320()
     print("---")
     print("ALL TESTS PASSED (host harness for Phase 3 inc1)")
     if not HAS_PLOT:

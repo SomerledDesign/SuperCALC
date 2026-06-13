@@ -9,6 +9,12 @@ cartesian_sample: evaluate f(x) over [xmin, xmax] producing list of (x, y) point
 linspace(xmin, xmax, n=320): helper returning the x-grid (320x320-aware default).
 Exposed so host scripts and future render layers can share the exact sampling grid.
 
+ascii_plot(points, width=64, height=16, title=""): host/device friendly text renderer for
+sampled point data. Produces a multi-line ascii frame with '*' marks. Ignores NaNs, auto-scales
+to data range (or flat-line sentinel). Small, zero-dep, useful for immediate host verification
+of sampling correctness and curve shape before real pixels (inc2). 320 samples downsample cleanly
+to terminal width.
+
 Implementation re-uses mp.lang.expr (to_rpn + eval_rpn) + mp.lib.hybrid (C math when present).
 This gives correct precedence, all Phase1/2 functions, first-class program support, and
 sto/rcl side effects for RPL-style "graph a program that mutates state".
@@ -116,3 +122,97 @@ def cartesian_sample(
             # keep plot "runnable" even if some points domain-error (e.g. log(x) for x<=0)
             points.append((float(x), float("nan")))
     return points
+
+
+def ascii_plot(points: List[Point], width: int = 64, height: int = 16, title: str = "") -> str:
+    """
+    Render sampled (x,y) points as a compact ascii plot (multi-line string).
+    Pure Python, zero deps, works on host REPL and on-device terminal.
+    Intended for Phase 3 inc1 data verification and quick visual checks.
+    Downsamples naturally when width < len(points) (e.g. 320 samples -> 64 cols).
+
+    - Skips NaN/Inf y values (domain errors during sample stay non-fatal).
+    - Auto y-range from data; if flat or no points, emits a clear placeholder.
+    - Frame uses + - | with * for data marks.
+    - Title (if given) appears above the plot frame.
+    - Returns the text; caller does print(...) for display.
+    """
+    if width < 4:
+        width = 4
+    if height < 3:
+        height = 3
+
+    # Filter valid finite points only (preserve order for x, but we bucket by col)
+    valid = [(float(px), float(py)) for (px, py) in points
+             if isinstance(py, (int, float)) and _py_m.isfinite(py) and isinstance(px, (int, float)) and _py_m.isfinite(px)]
+
+    if not valid:
+        lines = []
+        if title:
+            lines.append(title)
+        lines.append("+" + "-" * (width - 2) + "+")
+        msg = "(no valid data)"
+        pad = (width - 2 - len(msg)) // 2
+        mid = "|" + " " * pad + msg + " " * (width - 2 - pad - len(msg)) + "|"
+        for _ in range(height - 2):
+            lines.append(mid)
+        lines.append("+" + "-" * (width - 2) + "+")
+        return "\n".join(lines)
+
+    xs = [p[0] for p in valid]
+    ys = [p[1] for p in valid]
+    xmin, xmax = min(xs), max(xs)
+    ymin, ymax = min(ys), max(ys)
+
+    # Handle flat y (or single point)
+    if ymax == ymin:
+        # make a visible band so flat lines still render as horizontal
+        delta = abs(xmax - xmin) * 0.01 if xmax != xmin else 1.0
+        ymin -= delta
+        ymax += delta
+
+    def to_col(x: float) -> int:
+        if xmax == xmin:
+            return width // 2
+        t = (x - xmin) / (xmax - xmin)
+        return max(0, min(width - 1, int(round(t * (width - 1)))))
+
+    def to_row(y: float) -> int:
+        # screen row 0 = top = high y
+        if ymax == ymin:
+            return height // 2
+        t = (y - ymin) / (ymax - ymin)
+        row = int(round((1.0 - t) * (height - 1)))
+        return max(0, min(height - 1, row))
+
+    # Build empty grid (list of lists for mutability)
+    grid = [[' ' for _ in range(width)] for _ in range(height)]
+
+    # Plot marks (last-wins on column collision is acceptable for ascii verify)
+    for px, py in valid:
+        c = to_col(px)
+        r = to_row(py)
+        grid[r][c] = '*'
+
+    # Assemble frame
+    lines: List[str] = []
+    if title:
+        lines.append(title[:width])
+
+    top = "+" + "-" * (width - 2) + "+"
+    bot = top
+    lines.append(top)
+
+    for r in range(height):
+        row_chars = ''.join(grid[r])
+        lines.append("|" + row_chars + "|")
+
+    lines.append(bot)
+
+    # Tiny range footer (keeps it tiny and verifiable)
+    footer = f"[{xmin:.3g},{xmax:.3g}] x [{ymin:.3g},{ymax:.3g}] n={len(points)}"
+    if len(footer) > width:
+        footer = footer[:width]
+    lines.append(footer)
+
+    return "\n".join(lines)

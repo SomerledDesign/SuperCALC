@@ -150,7 +150,7 @@ PYEOF
       # worktree mods (leading space) -> false "clean" reports, violating PGR "commit cleanly".
       # Also filter claude_report and handoffs consistently.
       local dirty
-      dirty=$(git status --porcelain 2>/dev/null | grep -E '^( ?M| ?A| ?D| ?R| ?C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' || true | wc -l | tr -d ' ')
+      dirty=$( (git status --porcelain 2>/dev/null | grep -E '^( ?M| ?A| ?D| ?R| ?C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' || true ) | wc -l | tr -d ' ')
       if [[ "$dirty" -gt 0 ]]; then
         fail "Git working tree not clean. Commit or stash changes before complete-phase."
         echo "Dirty (excluding handoffs/ + temps):"
