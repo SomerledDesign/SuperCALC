@@ -48,10 +48,11 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 
 **Success Criteria**:
 - Automation script runs cleanly (`status`, `complete-phase` demo).  [x] status + help + complete-phase implemented and functional per PGR + fixes for M-1/M-2 from Phase 0 QA. complete-phase now checks git clean, writes proper handoff, updates state, prints claude prompt.
-- User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification
-- First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt (Phase 0), extended in Phase 1 inc1.
+- [x] inc1: Added `record-hardware-verification "note"` and `set-phase` subcommands (tested in host); `status` now surfaces HW flag + last_completed. Enables the human HW gate recording. (ralph.sh syntax + dispatch verified; dirty check still excludes handoffs.)
+- User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification (use `./tools/ralph.sh record-hardware-verification "..."` after real PicoCalc smoke)
+- First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt (Phase 0), extended in Phase 1 inc1. Host `tests/test_hybrid.py` green on fallback; structure ready for USER_C_MODULES build.
 
-**Current Status**: Phase 0 foundation complete in code/tooling. complete-phase + clearance logic fixed. Automation now matches PGR expectations. Awaiting hardware smoke on real PicoCalc (human step; LOOP_STATE correctly records last_completed_phase: -1 until human verification recorded). Phase 1 inc1 + fix2 work complete in host (see below). See handoffs/ and claude_report for history.
+**Current Status**: Phase 0 inc1 (first attempt): ralph automation extended for HW record gate + Phase 0 current set. Hybrid skeleton + host harness present and green. Awaiting hardware smoke on real PicoCalc (human step; LOOP_STATE last_completed_phase: -1, hardware_verified:false until `record-hardware-verification` run post real-device confirm). See handoffs/ for prior Phase 0 attempts. Per PGR, work scoped only to Phase 0 (no Phase1+ code changes in this inc).
 
 ## Phase 1 — Core Math Engine & Expression System
 

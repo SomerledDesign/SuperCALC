@@ -123,9 +123,81 @@ if os.path.isdir("handoffs"):
     hs = sorted([h for h in os.listdir("handoffs") if h.endswith(".md")])[-3:]
     print("Recent handoffs:", hs)
 print("Run example: ./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md 0 0")
+print("HW record (Phase 0): ./tools/ralph.sh record-hardware-verification \"PicoCalc dashboard + REPL smoke OK\"")
 PYEOF
       echo "Active auditor: $AUDITOR (bin: $AUDITOR_BIN , flags: $AUDITOR_FLAGS)"
       echo "════════════════════════════════════════════════════════"
+      # Show HW verification status (Phase 0 gate) if present
+      python3 - <<'PYEOF' 2>/dev/null || true
+import json
+try:
+    with open("docs/LOOP_STATE.json") as f: data = json.load(f)
+    if data.get("hardware_verified"):
+        print("Hardware verified: YES -", data.get("hardware_note", "(no note)"))
+    else:
+        print("Hardware verified: NO (pending real PicoCalc smoke; use record-hardware-verification after human confirm)")
+    print("Last completed phase:", data.get("last_completed_phase", -1))
+except: pass
+PYEOF
+      exit 0
+      ;;
+    set-phase)
+      # Allow explicit phase set (per PGR: use only intentionally, rare mid-phase; supports starting fresh inc on declared phase)
+      local newp="${1:-0}"
+      if ! [[ "$newp" =~ ^[0-9]+$ ]]; then
+        fail "set-phase requires numeric arg 0-7"
+        exit 1
+      fi
+      python3 - <<PYEOF
+import json
+data = {}
+try:
+    with open("docs/LOOP_STATE.json") as f: data = json.load(f)
+except: pass
+old = data.get("current_phase", 0)
+data["current_phase"] = int(${newp})
+data["status"] = "in_progress"
+data.setdefault("notes", "")
+data["notes"] = data["notes"] + "; set-phase ${newp} (was ${old})"
+with open("docs/LOOP_STATE.json", "w") as f:
+    json.dump(data, f, indent=2)
+print("LOOP_STATE current_phase set to ${newp}")
+PYEOF
+      ok "Current phase set to ${newp}. (Follow PGR: only on declared phase; record in DECISIONS if significant.)"
+      exit 0
+      ;;
+    record-hardware-verification)
+      # Phase 0 critical: record human-performed smoke on real hardware (PicoCalc + Pico 2 W)
+      # Per PGR + PHASES success: "User has confirmed base firmware + dashboard works on real hardware."
+      # "Hardware verification: the feature runs on the real PicoCalc (you may need the human to confirm specific interactions)."
+      # Call e.g.: ./tools/ralph.sh record-hardware-verification "Dashboard + REPL + import picocalc_math + hybrid.sin(0.5) OK on Pico 2 W unit"
+      local note="${1:-Hardware smoke + dashboard confirmed on real PicoCalc (Pico 2 W)}"
+      python3 - <<PYEOF
+import json, datetime
+data = {}
+try:
+    with open("docs/LOOP_STATE.json") as f: data = json.load(f)
+except: pass
+data["hardware_verified"] = True
+data["hardware_note"] = """${note}"""
+data["last_completed_phase"] = 0
+data["status"] = "complete" if data.get("current_phase", 0) == 0 else data.get("status", "in_progress")
+hist = data.setdefault("phase_history", [])
+note_entry = "HW verified via record-hardware-verification: ${note}"
+if not any(note_entry in str(h) for h in hist[-3:] if isinstance(h, dict)):
+    for h in hist:
+        if isinstance(h, dict) and h.get("phase") == 0:
+            h.setdefault("notes", []).append(note_entry)
+            h["status"] = "complete"
+            break
+data.setdefault("notes", "")
+data["notes"] = data.get("notes", "") + "; HW verified at $(date -Iseconds): ${note}"
+with open("docs/LOOP_STATE.json", "w") as f:
+    json.dump(data, f, indent=2)
+print("Hardware verification recorded. last_completed_phase=0 for Phase 0 gate.")
+PYEOF
+      ok "HW verification recorded: $note"
+      echo "Re-run status to confirm. Use for Phase 0 clearance once human confirms on-device."
       exit 0
       ;;
     complete-phase)
@@ -293,13 +365,21 @@ ralph.sh — SuperCalc.OG unattended Ralph Loop driver
 Usage:
   ./tools/ralph.sh                                   # run full loop (phases 0-7)
   ./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md 0 0  # run specific phase range (e.g. just 0)
-  ./tools/ralph.sh status                            # print current loop state, git, handoffs
+  ./tools/ralph.sh status                            # print current loop state, git, handoffs, HW verify
+  ./tools/ralph.sh set-phase N                         # (rare) explicitly set current_phase (PGR: intentional only)
   ./tools/ralph.sh complete-phase "short description of increment"
+  ./tools/ralph.sh record-hardware-verification "note" # Phase 0+: record human-confirmed smoke on real PicoCalc
   ./tools/ralph.sh help
 
 complete-phase: checks git clean, writes handoffs/phase-N-...-review-request.md,
 updates LOOP_STATE to awaiting_qa, prints ready-to-paste claude prompt.
 Use this (not full ralph run) when you have manually implemented per PGR.
+
+record-hardware-verification "note from human": records real-hw smoke for Phase 0 gate
+  (sets last_completed_phase=0, hardware_verified, appends to phase 0 history).
+  Run after user confirms dashboard/REPL/hybrid on actual PicoCalc + Pico 2 W.
+
+set-phase N: sets current_phase (use sparingly per PGR phased discipline).
 
 The script drives Grok (implementer per PGR.md) then Claude (QA per ClaudeQA.md).
 It updates LOOP_STATE.json and produces handoffs/ on increments.
@@ -365,7 +445,7 @@ done
 # (Now safe to run after -a options have been consumed.)
 if [[ $# -gt 0 ]]; then
   first_arg="$1"
-  if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" ]]; then
+  if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" || "$first_arg" == "set-phase" || "$first_arg" == "record-hardware-verification" ]]; then
     handle_subcommand "$@"
     # handle_subcommand always exits for these
   fi

@@ -76,6 +76,18 @@ Record significant architectural, technical, and scope decisions with rationale 
 
 **Date**: 2026-06 (Phase 0 inc1)
 
+### Phase 0 inc1 — ralph automation for HW verification gate + Phase 0 focus
+**Decision**: Extended tools/ralph.sh with `record-hardware-verification "human note"` (updates LOOP_STATE hardware_verified + last_completed_phase + phase 0 history) and `set-phase N` (for explicit current phase control per query "Current Phase: 0"). Updated status output to surface HW state. Used to set current_phase=0 and reconcile for the inc1 slice. Host exercised the record cmd (then reset flag to pending for accurate human step). No changes to C math surface or later phase code.
+
+**Rationale**:
+- Completes the Phase 0 success criteria item "Automation script runs cleanly (status, complete-phase demo)" by delivering the missing HW record tool referenced in PGR/PHASES/older notes.
+- Directly supports "Hardware verification ... on the real PicoCalc (you may need the human to confirm specific interactions)" and "last_completed_phase remains -1 until recorded".
+- Keeps implementer work scoped strictly to Phase 0 (docs + tooling only); thin, offline, no scope creep into expr/VM/plot.
+- Matches "Small, verifiable slices" + "Run the automation tool frequently for status" + "Documentation is part of the work".
+- Test run of the new cmd + status + host test_hybrid confirmed green before commit/handoff.
+
+**Date**: 2026-06 (Phase 0 inc1, first attempt)
+
 ## 2026-06 (Phase 0 QA fixes carried into Phase 1 inc1)
 
 ### Loop Automation Hygiene (ralph.sh)
