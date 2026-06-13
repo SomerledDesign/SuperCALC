@@ -29,6 +29,8 @@ def test_stats_basic():
     assert approx(stats_stdev([1,2,3]), 1.0)
     # integers and floats
     assert approx(stats_mean([0.1, 0.2, 0.3]), 0.2, 1e-9)
+    # additional float case for Welford parity (verifiable in C or py)
+    assert approx(stats_stdev([1.0, 3.0]), 1.41421356237, 1e-9)
     print("OK stats_basic (sum/mean/stdev exact + tol)")
 
 def test_stats_errors():
