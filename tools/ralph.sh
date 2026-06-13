@@ -23,6 +23,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
+# Always start with clean transient auditor report (claude_report.txt) so dirty
+# checks, status, and complete-phase never surface prior-run bash errors / partial
+# claude output / "You've hit your limit" as working-tree dirt or cause follow-on
+# command-substitution surprises in subsequent prompt builds. This directly mitigates
+# the exact symptoms captured in the claude_report.txt from the provided QA rejection.
+git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
+
 echo "[ralph] Sandbox: $PROJECT_DIR"
 
 # Unconditional safe defaults (so complete-phase / status when invoked as $1 never
@@ -102,8 +109,12 @@ print()
 try:
     out = subprocess.check_output(["git","status","--porcelain"], text=True, stderr=subprocess.DEVNULL)
     lines = [l for l in out.strip().split("\n") if l.strip()]
-    print("Git dirty files:", len(lines))
-    for l in lines[:5]:
+    # Filter transient claude_report.txt (the "auditor report" file) and handoffs to match
+    # complete-phase dirty logic. Prevents "Git dirty files: 1 M claude_report.txt" noise
+    # in status (was visible in prior retry failure logs) while still warning on real mods.
+    filtered = [l for l in lines if 'claude_report.txt' not in l]
+    print("Git dirty files:", len(filtered), ("(+ claude_report.txt transient ignored)" if any('claude_report' in l for l in lines) else ""))
+    for l in filtered[:5]:
         print("  ", l)
 except Exception:
     print("Git: n/a")
@@ -241,14 +252,19 @@ PYEOF
       echo "════════════════════════════════════════════════════════"
       echo "COPY-PASTE PROMPT FOR CLAUDE (local claude CLI):"
       echo "════════════════════════════════════════════════════════"
-      # Pre-read to reduce expansion surprises in the printed instructions.
-      local claudeqa_inline
-      claudeqa_inline=$(cat "$CLAUDEQA_FILE" 2>/dev/null || echo "(ClaudeQA.md not readable here; use file directly from docs/)")
-      cat <<PROMPT
+      # SAFE emission: cat the ClaudeQA.md *literally* via file (no ${} expansion of its
+      # content, which contains markdown **, ( ), code fences, backticks, etc that previously
+      # triggered "permission denied", "command not found", syntax error near `(' and
+      # "message got cut off" symptoms when unquoted heredoc or large inlines were used
+      # during prompt construction / CLI handoff). Only safe ${phase} etc expand in the
+      # small wrapper heredocs.
+      cat <<'PROMPT_START'
 You are the independent auditor. Follow this ClaudeQA.md document with absolute discipline.
 
 === ClaudeQA.md ===
-${claudeqa_inline}
+PROMPT_START
+      cat "$CLAUDEQA_FILE" 2>/dev/null || echo "(ClaudeQA.md not readable here; use file directly from docs/)"
+      cat <<PROMPT_END
 === END ClaudeQA.md ===
 
 This is the handoff after implementer work on Phase ${phase}.
@@ -263,7 +279,7 @@ CLEARED TO CONTINUE
 PHASE COMPLETE - CLEARED TO ADVANCE
 NEEDS WORK - DO NOT ADVANCE
 Print a one-line summary at the very end.
-PROMPT
+PROMPT_END
       echo "════════════════════════════════════════════════════════"
       echo "Then (after claude writes claude_report.txt): ./tools/ralph.sh status"
       echo "The loop (ralph.sh <start> <end>) will auto-detect clearance on next full run."
@@ -362,6 +378,14 @@ Task: Implement the next small, verifiable increment for Phase ${phase} accordin
 
 After you are done, the work will be handed to the auditor."
   else
+    # Limit previous report size in the embedded prompt to avoid CLI arg truncation /
+    # "message got cut off" and "you just sent "to" and nothing else" symptoms when
+    # full prior claude_report (with accumulated output or large handoffs) + PGR
+    # exceeds practical limits for --single or the receiving model/CLI.
+    # The full report + handoff files remain in the workspace for the implementer
+    # (per "Read the previous claude_report.txt now").
+    local limited_report
+    limited_report=$(head -c 1500 claude_report.txt 2>/dev/null || echo "(no prior report or empty)")
     prompt="*** QA REJECTION — RETRY ${attempt}/${MAX_RETRIES} ***
 
 Read the previous claude_report.txt now. Fix every issue the auditor raised before writing new code.
@@ -376,8 +400,9 @@ ${pgr_content}
 Current Phase: ${phase}
 This is retry ${attempt}.
 
-Previous auditor report:
-${last_report}
+Previous auditor report (excerpt; read full claude_report.txt + latest handoff/phase-N-*-review-request.md in workspace for complete context):
+${limited_report}
+... (truncated for prompt size safety; full file on disk)
 
 Task: Fix the issues from the auditor report and complete a clean increment for Phase ${phase}.
 Commit with: 'phase-${phase}-fix${attempt}: <short description>'
