@@ -239,3 +239,8 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 - Full curses/colored (rejected: overkill for inc1; breaks "simple" + offline + works in basic terminal).
 
 **Date**: 2026-06 Phase 3 inc1 (this attempt)
+
+### Phase 3 inc1: side-effect sto during Program sampling (RPL stateful fns)
+**Decision**: Added `test_program_body_side_effects_during_sample` exercising a Program body that does "x sto last_x" + returns 2*x ; cartesian_sample over range leaves final state (env["last_x"] == xmax) visible to caller. 15+ host tests now.
+**Rationale**: Directly verifies the documented "env mutated ... sto/rcl side effects if expr has them" and "first-class" Program bodies as plottable fns (RPL spirit for graphing programs that maintain/observe state). Small verifiable extension of existing sampling + prog integration; no API or scope change. Fits "host tests first" and keeps data-only slice pure.
+**Date**: 2026-06 Phase 3 inc1 (attempt 1)

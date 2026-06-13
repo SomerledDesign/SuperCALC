@@ -180,6 +180,23 @@ def test_ascii_plot_downsample_320():
     print("OK ascii_plot 320-sample downsample to narrow width (verifies 320-aware data)")
 
 
+def test_program_body_side_effects_during_sample():
+    # RPL spirit test: sample a first-class Program body that performs sto side-effect
+    # (e.g. records last x processed to env). cartesian_sample shares the env across
+    # sequential evals so state updates are visible (authentic for graphing stateful progs).
+    # Body RPN: x sto last_x ; x 2 *   (result left on stack for return value)
+    env = {}
+    body = [("var", "x"), "sto", "last_x", ("var", "x"), 2, "*"]
+    p = make_prog("dbl_last", body, env)
+    pts = cartesian_sample(p, 0, 10, n=5, env=env)
+    assert len(pts) == 5
+    assert approx(pts[0][1], 0.0)
+    assert approx(pts[-1][1], 20.0)
+    # final state from last sample (xmax) should be visible to caller
+    assert approx(env.get("last_x", -99.0), 10.0)
+    print("OK Program body with sto side-effect during sample (RPL stateful fn graph)")
+
+
 def main():
     print("SuperCalc.OG Phase 3 plot data engine host tests")
     print("---")
@@ -197,6 +214,7 @@ def main():
     test_ascii_plot_flat_and_empty()
     test_ascii_plot_prog_curve()
     test_ascii_plot_downsample_320()
+    test_program_body_side_effects_during_sample()
     print("---")
     print("ALL TESTS PASSED (host harness for Phase 3 inc1)")
     if not HAS_PLOT:
