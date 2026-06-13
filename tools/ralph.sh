@@ -148,20 +148,22 @@ PYEOF
         fail "set-phase requires numeric arg 0-7"
         exit 1
       fi
-      python3 - <<PYEOF
+      RALPH_PHASE="${newp}" python3 - <<'PYEOF'
 import json
+import os
 data = {}
 try:
     with open("docs/LOOP_STATE.json") as f: data = json.load(f)
 except: pass
 old = data.get("current_phase", 0)
-data["current_phase"] = int(${newp})
+newp = int(os.environ.get("RALPH_PHASE", "0"))
+data["current_phase"] = newp
 data["status"] = "in_progress"
 data.setdefault("notes", "")
-data["notes"] = data["notes"] + "; set-phase ${newp} (was ${old})"
+data["notes"] = data.get("notes", "") + f"; set-phase {newp} (was {old})"
 with open("docs/LOOP_STATE.json", "w") as f:
     json.dump(data, f, indent=2)
-print("LOOP_STATE current_phase set to ${newp}")
+print("LOOP_STATE current_phase set to", newp)
 PYEOF
       ok "Current phase set to ${newp}. (Follow PGR: only on declared phase; record in DECISIONS if significant.)"
       exit 0

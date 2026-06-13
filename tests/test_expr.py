@@ -18,6 +18,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from mp.lang.expr import to_rpn, eval_infix, eval_rpn, eval_rpn_str, HAS_C_MATH
+from mp.lang.prog import make_prog  # Phase 4 tests use it directly
 
 EPS = 1e-10
 
@@ -202,6 +203,39 @@ def test_program_first_class():
     assert approx(eval_rpn([7, "alias"], env), 49.0)
     print("OK Phase2 first-class: program values storable and invocable under aliases")
 
+# --- Phase 4 inc1: list data + stats ops in rpn + solver integration ---
+def test_phase4_list_data_in_rpn():
+    # lists pushed and round-tripped as data (parallel to Program)
+    res = eval_rpn( [ [1, 2, 3], "dup", "drop" ] )  # push list, dup it (as data), drop one, return the list
+    assert res == [1, 2, 3]
+    # sto a list (sto is side-effect only; follow with rcl of name to leave value + satisfy non-empty top-level)
+    env = {}
+    res = eval_rpn( [ [10,20], "sto", "data", "rcl", "data" ], env)
+    assert env["data"] == [10, 20]
+    assert res == [10, 20]
+    print("OK phase4 list_data_in_rpn (push, dup/drop, sto/rcl as data)")
+
+def test_phase4_stats_rpn_ops():
+    assert approx( eval_rpn( [ [2, 4, 6], "sum" ] ), 12.0 )
+    assert approx( eval_rpn( [ [1, 2, 3], "mean" ] ), 2.0 )
+    assert approx( eval_rpn( [ [1, 2, 3], "stdev" ] ), 1.0, 1e-9 )
+    # inside program body
+    p = make_prog("sum3", [ [1,2,3], "sum" ])
+    assert approx( eval_rpn( [p, "run"] ), 6.0 )
+    print("OK phase4 stats_rpn_ops (list + sum/mean/stdev, in prog)")
+
+def test_phase4_solver_integration():
+    from mp.lib.solver import find_root
+    import math
+    # infix via solver (re-uses expr)
+    assert approx( find_root("x*x-2", 1, 2), math.sqrt(2), 1e-8 )
+    # rpn list f (var token)
+    assert approx( find_root( [ ("var","x"), 2, "pow", 2, "-" ], 1, 2), math.sqrt(2), 1e-8 )
+    # program as f (x-env contract)
+    p = make_prog(None, [ ("var","x"), "dup", "*", 2, "-" ])
+    assert approx( find_root(p, 1, 2), math.sqrt(2), 1e-8 )
+    print("OK phase4 solver_integration (infix/rpn/prog roots)")
+
 def main():
     print("SuperCalc.OG expr test harness (Phase 1 + Phase 2 prog skeleton) — host fallback path")
     print(f"HAS_C_MATH={HAS_C_MATH} (C rpn_eval used only on device)")
@@ -220,6 +254,9 @@ def main():
     test_program_sto_rcl_eval()
     test_program_side_effects_and_nesting()
     test_program_first_class()
+    test_phase4_list_data_in_rpn()
+    test_phase4_stats_rpn_ops()
+    test_phase4_solver_integration()
     print("---")
     print("ALL EXPR + PROG TESTS PASSED")
     if not HAS_C_MATH:

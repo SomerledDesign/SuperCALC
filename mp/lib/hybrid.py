@@ -18,7 +18,7 @@ except ImportError:
 def version():
     if HAS_C_MATH:
         return _c.version()
-    return "pure-python-fallback-0.5"
+    return "pure-python-fallback-0.6-phase4"
 
 def add(a, b):
     if HAS_C_MATH:
@@ -313,3 +313,63 @@ def plot_sample(obj):
     from mp.plot import cartesian_sample
     # minimal passthrough example; real callers use the mp.plot API directly
     return cartesian_sample(obj) if isinstance(obj, str) else None
+
+# --- Phase 4 inc1: stats (thin boundary to C reduce or py) ---
+# HAS_STATS True when C math present (stats are in same module).
+HAS_STATS = HAS_C_MATH
+
+def _ensure_list(it):
+    if isinstance(it, (list, tuple)):
+        return list(it)
+    # accept any iterable for host py path
+    return list(it)
+
+def stats_sum(xs):
+    if HAS_C_MATH:
+        return _c.stats_sum(xs)
+    xs = _ensure_list(xs)
+    if not xs:
+        raise ValueError("stats empty input")
+    # use fsum for better accuracy on host; validate numerics for error parity with C
+    import math as _m
+    try:
+        vals = [float(x) for x in xs]
+    except Exception:
+        raise ValueError("stats expected numeric iterable")
+    return _m.fsum(vals)
+
+def stats_mean(xs):
+    if HAS_C_MATH:
+        return _c.stats_mean(xs)
+    xs = _ensure_list(xs)
+    if not xs:
+        raise ValueError("stats empty input")
+    import math as _m
+    try:
+        vals = [float(x) for x in xs]
+    except Exception:
+        raise ValueError("stats expected numeric iterable")
+    return _m.fsum(vals) / len(vals)
+
+def stats_stdev(xs):
+    if HAS_C_MATH:
+        return _c.stats_stdev(xs)
+    xs = _ensure_list(xs)
+    n = len(xs)
+    if n < 2:
+        raise ValueError("stdev requires at least 2 values")
+    import math as _m
+    # Welford mirror for host fidelity; validate
+    try:
+        vals = [float(v) for v in xs]
+    except Exception:
+        raise ValueError("stats expected numeric iterable")
+    mean = 0.0
+    m2 = 0.0
+    for i, x in enumerate(vals):
+        ncur = i + 1
+        delta = x - mean
+        mean += delta / ncur
+        m2 += delta * (x - mean)
+    var = m2 / (n - 1)
+    return _m.sqrt(var if var > 0 else 0.0)

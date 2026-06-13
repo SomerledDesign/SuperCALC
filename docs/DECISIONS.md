@@ -256,3 +256,64 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Decision**: Added `test_program_body_side_effects_during_sample` exercising a Program body that does "x sto last_x" + returns 2*x ; cartesian_sample over range leaves final state (env["last_x"] == xmax) visible to caller. 15+ host tests now.
 **Rationale**: Directly verifies the documented "env mutated ... sto/rcl side effects if expr has them" and "first-class" Program bodies as plottable fns (RPL spirit for graphing programs that maintain/observe state). Small verifiable extension of existing sampling + prog integration; no API or scope change. Fits "host tests first" and keeps data-only slice pure.
 **Date**: 2026-06 Phase 3 inc1 (attempt 1)
+
+---
+
+## 2026-06 (Phase 4 inc1 — Solvers + Statistics foundations)
+
+### Stats hot path in C (sum/mean/stdev iterable reduce)
+**Decision**: Added sum, mean, stdev (sample, n-1 denom for n>1) to picocalc_math.c using mp iter + Welford one-pass for variance/stdev (stable, no second pass or extra storage). Exposed via hybrid.stats_* with pure-py fallback (fsum + Welford mirror). Integrated as rpn ops in expr ("sum" etc that pop list value). List/tuple treated as first-class stack values (push like Program).
+
+**Rationale**:
+- C for the reduce loop matches "C for hot paths" (even if lists small on calc, principle + future large ulab arrays benefit; accuracy via Welford documented).
+- Matches Phase 3 pattern: data API in MPy (lists), C owns the numeric kernel (reduce), thin registration.
+- Stats are foundational for Phase 4 "solvers, stats"; immediately usable from REPL, progs (once lists pushed), and solver internals if extended.
+- Sample stdev conventional for stats on samples; empty error explicit; keeps double baseline.
+- No change to rpn scalar machine; lists are data (RPL objects on stack).
+
+**Date**: 2026-06 Phase 4 inc1 (attempt 1)
+
+### Solver re-uses expr/hybrid/prog + x-env contract (no new C kernel yet)
+**Decision**: mp/lib/solver.py : find_root implemented in pure MPy (secant with safeguards + maxiter). Supports f as infix-str (eval_infix + env), rpn-list (eval_rpn), or Program (via run/eval_rpn). Always mutates/provides env['x'] for the f body (exact same contract as Phase 3 plot cartesian_sample for Program-as-fn). Side effects (sto during root search) visible to caller env.
+
+**Rationale**:
+- "Small verifiable slice": leverages all prior (expr, prog first-class, hybrid, env side effects) without duplication or new parser/VM work.
+- Secant is classic, fast converging for smooth f; pure py loop fine (evals themselves hit C math). C solver dispatch possible in inc2+ if profiling shows need (would take RPN or bytecode + bounds, return scalar).
+- RPL spirit: user can define a Program for f, sto it, then solve using the name or object; result can feed back into stack/prog.
+- Consistent x-env with graphing makes "solve then plot root" natural later.
+- Documented limits (tol, maxiter, bracket assumption handled gracefully).
+
+**Alternatives considered**:
+- Pure rpn "solver" word in C (rejected for inc1: too much, would require passing f as rpn sub-stream or callback; MPy reuse is correct thin start).
+- Bisection only (rejected: secant better for speed once near root; we can add hybrid bracket+secant later).
+
+**Date**: 2026-06 Phase 4 inc1 (attempt 1)
+
+### First-class list data values on RPN stack (Phase 4 data model start)
+**Decision**: expr.py _execute_rpn_body now pushes list/tuple tokens as-is onto the Python stack (parallel to Program handling). New builtin ops "sum"/"mean"/"stdev" pop a list (or error), call hybrid stats, push result. Lists round-trip as data (can be sto'd, passed to progs, etc).
+
+**Rationale**:
+- Enables the stats words in RPL style without inventing list literal syntax in infix yet (keeps parser scope out of this slice).
+- Programs can return or consume lists (future stats progs natural).
+- Thin: the "list" is a python list object on the MPy stack (no C list rep yet; C stats just iterate what MPy passes).
+- Prepares for richer objects (units, matrices via ulab) while staying verifiable for inc1.
+- Recorded as explicit data model step for Phase 4 (HPs had rich objects; we start with list + prog + num).
+
+**Date**: 2026-06 Phase 4 inc1 (attempt 1)
+
+### ralph.py set-phase + LOOP_STATE hygiene for phase 4 start
+**Decision**: Fixed quoting/unbound-var bug in tools/ralph.sh set-phase (used RALPH_PHASE env + quoted 'PYEOF' heredoc + os.environ in py, matching prior phase3 ralph robustness work). Then used set-phase 4 + status to establish declared current phase per user query and PGR "only on declared". Updated LOOP_STATE, PHASES current note, and included ralph.py change in this inc1 commit.
+
+**Rationale**:
+- PGR mandates the script as single source; broken set-phase blocked declaring/starting Phase 4 cleanly.
+- Script fixes are part of "Documentation is part of the work" and "automation" success; similar hygiene was done in Phase 3 to make complete-phase reliable before new functional work.
+- The dirty (ralph + state) at start of inc is intentional and cleaned by the phase commit.
+
+**Date**: 2026-06 Phase 4 inc1 (attempt 1)
+
+### Version + surface bumps for Phase 4
+**Decision**: picocalc_math.c version -> "SuperCalc.OG-0.6-phase4"; hybrid fallbacks note phase4. Added stats_* and (internal) HAS_STATS=True when C present. Solver and stats exposed via mp.lib.* (import mp.lib.solver; from mp.lib.hybrid import stats_mean). No change to __all__ contracts that would break prior.
+
+**Rationale**: Keeps version visible for on-device smoke / debugging builds. Documents the phase in the live module.
+
+**Date**: 2026-06 Phase 4 inc1 (attempt 1)

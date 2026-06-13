@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 3 inc1 — Graphing data sampling engine (cartesian_sample via expr/hybrid reuse, 320x320 n-default, mp/plot + src/plot C skeleton, HAS_PLOT glue). All host tests (hybrid/expr/prog + new plot) green. Phase 2 inc1 (prog skeleton) host-complete + prior QA minors closed as hygiene. Ralph Loop active. Hardware smoke (0/1/2/3) pending real PicoCalc UF2 (includes picocalc_plot). See docs/PHASES.md + handoffs/.
+**Status**: Phase 4 inc1 — Stats + solver foundations (C stats_sum/mean/stdev hot reduce + Welford; mp/lib/solver find_root reuse expr/prog with x-env; lists as first-class rpn stack data + stats ops in expr; host tests green). Builds on Phase 3 plot data. Ralph Loop active (current_phase=4 per script/LOOP_STATE). Hardware smoke backlog (0-3) + this inc pending real PicoCalc UF2. See docs/PHASES.md + handoffs/.
 
 ## Vision
 

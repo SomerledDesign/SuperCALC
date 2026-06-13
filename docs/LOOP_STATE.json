@@ -1,6 +1,6 @@
 {
-  "current_phase": 0,
-  "status": "awaiting_qa",
+  "current_phase": 4,
+  "status": "in_progress",
   "last_completed_phase": -1,
   "phase_history": [
     {
@@ -20,6 +20,6 @@
   ],
   "last_handoff": "handoffs/phase-0-20260612-231211-review-request.md",
   "hardware_verified": false,
-  "notes": "Phase 0 inc1 (first attempt): set current_phase=0 per task; added ralph record-hardware-verification + set-phase support for pending HW gate + automation success criteria. Hybrid proof structure in place (C src/math + mp/lib/hybrid + tests). HW smoke pending human confirmation on real PicoCalc (use ralph record-hardware-verification after dashboard/REPL/hybrid smoke).; complete-phase at 20260612-231211",
+  "notes": "Phase 0 inc1 (first attempt): set current_phase=0 per task; added ralph record-hardware-verification + set-phase support for pending HW gate + automation success criteria. Hybrid proof structure in place (C src/math + mp/lib/hybrid + tests). HW smoke pending human confirmation on real PicoCalc (use ralph record-hardware-verification after dashboard/REPL/hybrid smoke).; complete-phase at 20260612-231211; set-phase 4 (was 0)",
   "hardware_note": ""
 }

@@ -103,9 +103,9 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 3 — Graphing Engine (2D Cartesian/polar/parametric, C sampling, 320x320 viewport)
+**Current Phase (per LOOP_STATE.json)**: 4 — Solvers, Statistics, Units & CAS Foundations (inc1: C stats kernel + MPy solver + list data + reuse)
 
-Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0/1/2 host complete with QA; hardware smoke backlog (Phase0-2) pending human on real PicoCalc + UF2 including picocalc_math + picocalc_vm + new picocalc_plot. Phase 3 inc1: first graphing data sampling slice + C plot skel + prior QA hygiene.)
+Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0/1/2/3 host complete with QA; hardware smoke backlog (Phase0-3) pending human on real PicoCalc + UF2 including picocalc_plot + prior modules. Phase 4 inc1 start: stats + solver foundations per below. Phase 3 inc1 delivered plot data sampling + ascii + C skel + hygiene; awaiting HW.)
 
 ## Phase 2 — REPL + Stack + HP-style Programmable Language Skeleton
 
@@ -207,7 +207,44 @@ Update this file's phase sections and status when the automation indicates a gat
 - Accuracy/performance notes: double sufficient; sample times recorded for typical fns.
 - Host + on-device tests; docs + DECISIONS updated; git clean handoffs.
 
+## Phase 4 — Solvers, Statistics, Units & CAS Foundations
+
+**Goal**: First practical scientific extensions: fast/accurate descriptive statistics (sum/mean/stdev in C for hot reduce + numeric stability), reusable numeric solver (root finder) that works seamlessly with expressions, RPN lists, and first-class Programs (RPL spirit), plus initial scaffolding for units and richer CAS hooks (leverage eigenmath if present in the base firmware). Keep thin boundary: C owns stats kernels (iterable reduce); MPy owns solver iteration + high-level (reuses Phase1/2/3 expr + hybrid + prog exactly as plot sampling did). Lists become first-class data values on the RPN/program stack for stats words. No full interactive solver UI or units objects with arithmetic yet (mp/apps/ for later; inc2+).
+
+**Deliverables for inc1 (small verifiable slice)**:
+- [x] src/math/picocalc_math.c: add sum(iter), mean(iter), stdev(iter) [sample stdev n>1 / (n-1)] implemented with iterable loop in C (mirrors rpn_eval iter pattern), empty-list and non-numeric guards, double accum (Welford-style 1-pass for stdev for stability). Register in module globals + version bump to phase4. Cmake unchanged (same usermod).
+- [x] mp/lib/hybrid.py: thin wrappers stats_sum / stats_mean / stats_stdev (C when HAS_C_MATH else py fsum / pure loops), plus HAS_STATS (or derive), version note. Pure-py fallback is faithful (matches C numerics for host tests).
+- [x] mp/lib/solver.py (new): find_root(f, a, b, tol=1e-9, maxiter=60, env=None) implementing safeguarded secant method. f may be: infix str (uses eval_infix(f, env)), pre-parsed rpn token list, or Program (uses eval_rpn(body, env) or run_prog). Always sets env['x'] per iteration (consistent with Phase 3 cartesian_sample contract for Program bodies as "fns"). Returns approx root or raises on no-converge / bracket issues. Thin, documented, offline.
+- [x] mp/lang/expr.py: minimal extension for Phase 4 data: (a) in _execute_rpn_body and related, treat list/tuple as first-class data value (push onto stack like Program); (b) new RPN ops "sum", "mean", "stdev" (and aliases) that pop a list from stack, delegate to hybrid.stats_*, push scalar result (or error). Enables RPL-style `[1, 2, 3, 4] sum` (when list token supplied from MPy caller) and use inside Program bodies. No parser changes for list literals in infix yet (future). Vars/env side effects preserved.
+- [x] Host tests: new tests/test_stats.py exercising C-fallback stats (known exact: sum/mean/stdev on small integer sets, float tol, empty error, non-num error, integration via hybrid direct). Extend tests/test_expr.py with list-push + stats-op cases in rpn (and via eval_rpn_str limited), + solver integration tests (find roots of infix, of rpn list, of Program body that refs 'x'; accuracy; maxiter case). All green on host.
+- [x] Docs: PHASES.md (full Phase 4 inc1 section + current note + prior phase status), DECISIONS.md (new entries for stats C choice + Welford, solver reuse of expr/prog/x-env, list as data values, version bumps), README.md status line. No scope creep.
+- [ ] On-device smoke: after UF2 w/ picocalc_math (already), `import mp.lib.hybrid as h; h.stats_mean([1,2,3,4]); from mp.lib.solver import find_root; from mp.lang.expr import eval_infix; find_root("x*x-2",1,2)` + Program body solve. (human step)
+- [ ] Hardware verification recorded (ralph or LOOP_STATE update). Backlog HW for 0-3 still pending.
+
+**Success Criteria (inc1)**:
+- Host tests for stats (exact means, stdev matches reference within 1e-9 or better on integers; errors clear for empty / bad data).
+- Solver: finds known roots to tol (sqrt(2), sin root, quadratic via prog) for str / rpn-list / Program inputs; uses shared env['x'] and can observe side-effects if f body does sto.
+- RPN lists: lists push/roundtrip on stack; stats ops on list tokens work in eval_rpn / inside Programs.
+- Thin hybrid + C: stats hot path (reduce loop) is C; solver loop in MPy (like plot) calling through existing eval/hybrid (future C solver accel if needed would not change caller shape).
+- Git clean at handoff; complete-phase produces usable + prompt.
+-  Accuracy notes recorded (double sufficient for these; Welford for stdev); 320x320 not directly touched but solver usable for graphing roots later.
+- DECISIONS + PHASES reflect reality; C/math + expr + prog + hybrid remain buildable (no cmake breakage).
+- No UI, no units full model (no dim objects + ops), no eigenmath surface extension, no CAS solver yet — this slice delivers *foundations* (stats primitives + reusable solver) usable from REPL/scripts/programs immediately on host + later device.
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-4-inc1: C stats + solver + list data in rpn + expr/hybrid reuse"` for handoff. Hardware for phase4 (and backlog 0-3) human gate before phase complete or phase 5.
+
+**Current inc1 status**: Host implementation + tests (14+ new/updated cases) + docs complete and green. ralph fix for set-phase + LOOP_STATE to 4 + PHASES/DECISIONS/ README updated. Ready for complete-phase handoff (first attempt). On-device + HW still human step.
+
+**Phase 4 Success Criteria (overall phase, for later incs)**:
+- Runnable on-device: stats on data lists from REPL or prog; solve an expression or user program for root and use result (e.g. in another prog or plot).
+- Units: basic dimensioned values (e.g. 5_m + 3_cm works or explicit convert) with simple arithmetic and display.
+- Richer CAS: surface more eigenmath (solve, diff, integrate symbolic) or lightweight custom if eigenmath absent; usable from expr / progs.
+- Stats extended (linreg, histograms?); solver generalizes (multiple roots, fsolve multi-var stub, integrate).
+- Full apps surface begins (mp/apps/solver.py or menu integration) while keeping REPL-first.
+- Performance: stats on 1k pts fast via C; solver iters cheap (expr hot path already C).
+- Host + on-device tests + accuracy notes; docs/DECISIONS; clean handoffs.
+
 ## Later Phases (High Level)
 
 (For reference — see prior outline and ARCHITECTURE.md; only current phase work is active.)
-- Phase 4+: Solvers, stats, units, richer CAS (eigenmath), polish, packaging, full REPL UI integration.
+- Phase 5+: Polish, packaging, full REPL/UI integration, richer CAS, units completeness, 3D/implicit graphing, performance tuning, SD program lib examples.

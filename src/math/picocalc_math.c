@@ -19,7 +19,7 @@
 // --- Thin documented API (subject to small evolution in Phase 1) ---
 
 STATIC mp_obj_t picocalc_math_version(void) {
-    const char *v = "SuperCalc.OG-0.5-phase2";
+    const char *v = "SuperCalc.OG-0.6-phase4";
     return mp_obj_new_str(v, strlen(v));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_0(picocalc_math_version_obj, picocalc_math_version);
@@ -154,6 +154,77 @@ STATIC mp_obj_t picocalc_math_fabs(mp_obj_t x_in) {
     return mp_obj_new_float(fabs(x));
 }
 STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_fabs_obj, picocalc_math_fabs);
+
+// --- Phase 4 inc1: stats (sum/mean/stdev) hot reduce in C ---
+// Iterable of numbers -> scalar. Welford 1-pass for stdev (numerically stable).
+// stdev is sample (n-1) for n>1; empty or n<2 raises clear error.
+STATIC mp_obj_t picocalc_math_sum(mp_obj_t it_in) {
+    double s = 0.0;
+    int n = 0;
+    mp_obj_iter_buf_t iter_buf;
+    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t item;
+    while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
+        double v;
+        if (!mp_obj_get_float_maybe(item, &v)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
+        }
+        s += v;
+        n++;
+    }
+    if (n == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("stats empty input"));
+    }
+    return mp_obj_new_float(s);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_sum_obj, picocalc_math_sum);
+
+STATIC mp_obj_t picocalc_math_mean(mp_obj_t it_in) {
+    double s = 0.0;
+    int n = 0;
+    mp_obj_iter_buf_t iter_buf;
+    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t item;
+    while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
+        double v;
+        if (!mp_obj_get_float_maybe(item, &v)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
+        }
+        s += v;
+        n++;
+    }
+    if (n == 0) {
+        mp_raise_ValueError(MP_ERROR_TEXT("stats empty input"));
+    }
+    return mp_obj_new_float(s / n);
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_mean_obj, picocalc_math_mean);
+
+STATIC mp_obj_t picocalc_math_stdev(mp_obj_t it_in) {
+    // Welford one-pass
+    double mean = 0.0;
+    double m2 = 0.0;
+    int n = 0;
+    mp_obj_iter_buf_t iter_buf;
+    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t item;
+    while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
+        double x;
+        if (!mp_obj_get_float_maybe(item, &x)) {
+            mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
+        }
+        n++;
+        double delta = x - mean;
+        mean += delta / n;
+        m2 += delta * (x - mean);
+    }
+    if (n < 2) {
+        mp_raise_ValueError(MP_ERROR_TEXT("stdev requires at least 2 values"));
+    }
+    double var = m2 / (n - 1);  // sample stdev
+    return mp_obj_new_float(sqrt(var < 0 ? 0 : var));
+}
+STATIC MP_DEFINE_CONST_FUN_OBJ_1(picocalc_math_stdev_obj, picocalc_math_stdev);
 
 // rpn_eval(tokens) — C kernel for expression system (Phase 1).
 // tokens: iterable of numbers (int/float) and op strings.
@@ -317,6 +388,10 @@ STATIC const mp_rom_map_elem_t picocalc_math_globals_table[] = {
     { MP_ROM_QSTR(MP_QSTR_atan),    MP_ROM_PTR(&picocalc_math_atan_obj) },
     { MP_ROM_QSTR(MP_QSTR_atan2),   MP_ROM_PTR(&picocalc_math_atan2_obj) },
     { MP_ROM_QSTR(MP_QSTR_rpn_eval), MP_ROM_PTR(&picocalc_math_rpn_eval_obj) },
+    /* Phase 4 stats (C hot path) */
+    { MP_ROM_QSTR(MP_QSTR_stats_sum),   MP_ROM_PTR(&picocalc_math_sum_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats_mean),  MP_ROM_PTR(&picocalc_math_mean_obj) },
+    { MP_ROM_QSTR(MP_QSTR_stats_stdev), MP_ROM_PTR(&picocalc_math_stdev_obj) },
 };
 STATIC MP_DEFINE_CONST_DICT(picocalc_math_module_globals, picocalc_math_globals_table);
 
