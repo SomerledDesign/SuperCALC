@@ -233,7 +233,7 @@ Update this file's phase sections and status when the automation indicates a gat
 
 **Automation Note**: Use `./tools/ralph.sh complete-phase "phase-4-inc1: C stats + solver + list data in rpn + expr/hybrid reuse"` for handoff. Hardware for phase4 (and backlog 0-3) human gate before phase complete or phase 5.
 
-**Current inc1 status**: Host implementation + tests (14+ new/updated cases) + docs complete and green. ralph fix for set-phase + LOOP_STATE to 4 + PHASES/DECISIONS/ README updated. Ready for complete-phase handoff (first attempt). On-device + HW still human step.
+**Current inc1 status**: Host implementation + tests (15+ cases incl. added float stdev parity) + docs complete and green. ralph complete-phase run for attempt 1; fresh handoff handoffs/phase-4-20260613-004410-review-request.md generated + committed + LOOP_STATE to awaiting_qa. Host tests green (C-fallback paths + solver reuse of expr/prog/lists). On-device smoke (import hybrid stats_*, solver find_root with Program) + HW verification still human step after UF2 (backlog 0-3 + this). See handoff for full deliverable claim vs success criteria.
 
 **Phase 4 Success Criteria (overall phase, for later incs)**:
 - Runnable on-device: stats on data lists from REPL or prog; solve an expression or user program for root and use result (e.g. in another prog or plot).
