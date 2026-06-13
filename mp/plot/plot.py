@@ -6,6 +6,9 @@ cartesian_sample: evaluate f(x) over [xmin, xmax] producing list of (x, y) point
   n: number of samples (default 320 to match PicoCalc 320x320 column density)
   env: optional dict for extra vars + side effects (sto inside sampled exprs visible to caller)
 
+linspace(xmin, xmax, n=320): helper returning the x-grid (320x320-aware default).
+Exposed so host scripts and future render layers can share the exact sampling grid.
+
 Implementation re-uses mp.lang.expr (to_rpn + eval_rpn) + mp.lib.hybrid (C math when present).
 This gives correct precedence, all Phase1/2 functions, first-class program support, and
 sto/rcl side effects for RPL-style "graph a program that mutates state".
@@ -25,6 +28,19 @@ from mp.lang.expr import to_rpn, eval_rpn
 from mp.lang.prog import is_program
 
 Point = Tuple[float, float]
+
+def linspace(xmin: float, xmax: float, n: int = 320) -> List[float]:
+    """Return n evenly spaced floats from xmin to xmax (inclusive).
+    Default n=320 matches PicoCalc 320x320 screen columns for direct 1:1 sampling.
+    Used internally by cartesian_sample; exposed for host tooling / custom x-grids.
+    """
+    if n < 2:
+        n = 2
+    if xmax < xmin:
+        xmin, xmax = xmax, xmin
+    dx = (xmax - xmin) / (n - 1) if n > 1 else 0.0
+    return [xmin + i * dx for i in range(n)]
+
 
 def sample_expr(
     expr: Union[str, List[Any], Any],
@@ -74,7 +90,8 @@ def cartesian_sample(
         n = 2
     if xmax < xmin:
         xmin, xmax = xmax, xmin
-    dx = (xmax - xmin) / (n - 1) if n > 1 else 0.0
+
+    xs = linspace(xmin, xmax, n)
 
     # Prepare tokens / body once (RPN form is efficient for repeated eval)
     if isinstance(expr, str):
@@ -88,8 +105,7 @@ def cartesian_sample(
         tokens = list(expr) if hasattr(expr, "__iter__") else []
 
     points: List[Point] = []
-    for i in range(n):
-        x = xmin + i * dx
+    for x in xs:
         env["x"] = float(x)
         try:
             y = eval_rpn(tokens, env)

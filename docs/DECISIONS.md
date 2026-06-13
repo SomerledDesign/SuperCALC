@@ -205,4 +205,10 @@ Also fixed m-1 (raise msg), m-2 (alias dispatch), m-3 (doc), m-5 (tests).
 
 **Date**: 2026-06 Phase 3 inc1
 
+### Phase 3 inc1: linspace grid helper exposed
+**Decision**: Added `mp.plot.linspace(xmin, xmax, n=320)` (and used internally by cartesian_sample) as a small pure-Py data utility. Exported publicly. Test coverage added. No change to C skel or sampling contract.
+**Rationale**: Makes the x-grid generation explicit and reusable for host verification, custom sampling, and future render layers (still inc2+). Keeps 320x320 default prominent and avoids duplicating spacing math. Fits "data only" slice; zero scope creep.
+**Alternatives**: Keep private (rejected: small but useful for users writing their own plot scripts on device/host before full UI).
+**Date**: 2026-06 Phase 3 inc1 (small addition)
+
 Add entries at the end of each phase or when a significant choice is locked. Include date, decision, rationale, and alternatives considered.

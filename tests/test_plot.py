@@ -16,7 +16,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from mp.plot import cartesian_sample, sample_expr
+from mp.plot import cartesian_sample, sample_expr, linspace
 from mp.lib.hybrid import HAS_PLOT, plot_version
 from mp.lang.prog import make_prog
 from mp.lang.expr import eval_infix
@@ -105,6 +105,24 @@ def test_sample_expr_helper():
     assert approx(y, 10.0)
     print("OK sample_expr single point helper")
 
+def test_linspace_helper():
+    xs = linspace(0, 10, 11)
+    assert len(xs) == 11
+    assert approx(xs[0], 0.0)
+    assert approx(xs[-1], 10.0)
+    dx = xs[1] - xs[0]
+    assert approx(dx, 1.0)
+    # also test default n=320 and swapped bounds
+    xs2 = linspace(5, -5, 5)
+    assert len(xs2) == 5
+    assert approx(xs2[0], -5.0)
+    assert approx(xs2[-1], 5.0)
+    print("OK linspace (spacing, count, swapped range, default n)")
+    # prove cartesian uses same grid
+    pts = cartesian_sample("x", 0, 4, n=5)
+    xs_from_pts = [p[0] for p in pts]
+    assert all(approx(a, b) for a, b in zip(xs_from_pts, linspace(0, 4, 5)))
+
 def main():
     print("SuperCalc.OG Phase 3 plot data engine host tests")
     print("---")
@@ -117,6 +135,7 @@ def main():
     test_vars_and_side_effect_env()
     test_has_plot_and_version()
     test_sample_expr_helper()
+    test_linspace_helper()
     print("---")
     print("ALL TESTS PASSED (host harness for Phase 3 inc1)")
     if not HAS_PLOT:
