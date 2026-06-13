@@ -658,8 +658,14 @@ Also print a short one-line summary to stdout at the end."
     if [[ -s claude_report.txt ]] && tail -20 claude_report.txt | grep -qiE 'APPROVED|NEEDS WORK|Final Verdict|CLEARED TO'; then
       warn "Auditor CLI exited non-zero (rc=$claude_rc) but claude_report.txt contains a review + verdict text. Proceeding (you may need to confirm the exact clearance line)."
     else
-      fail "$AUDITOR QA CLI timed out or errored on Phase ${phase} (no usable report detected)."
-      return 1
+      warn "$AUDITOR QA CLI did not produce a usable report for Phase ${phase}."
+      echo "The handoff is ready (see handoffs/ for the latest phase-4 handoff)."
+      echo "Complete the review manually (e.g. in VS Code Claude or your preferred agent, using the prompt from the handoff or the one printed during complete-phase) to produce a valid claude_report.txt ending with one of the required clearance lines."
+      echo "Then re-run the script (the monitor will restart it if needed) to continue the unattended loop."
+      echo "This is a known limitation of the one-shot claude CLI for long agentic reviews — manual completion works reliably."
+      # Exit cleanly with a documented code instead of the hard "Halting" path.
+      # This keeps the unattended flow from aborting on this recurring flaky case.
+      exit 3
     fi
   fi
 }
