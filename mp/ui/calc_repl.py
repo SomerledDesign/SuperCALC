@@ -197,6 +197,14 @@ class CalcREPL:
 
     def _execute_visible_rpn_words(self, toks: List[Any]) -> None:
         """Direct manip on self.stack + env for pure stack words / sto/rcl / len/stats / neg / EVAL run."""
+        # nums-only or data list: collect/push as single list entry so len/sum etc work on next line
+        if toks and all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks):
+            if len(toks) == 1 and isinstance(toks[0], (list, tuple)):
+                self.stack.append(list(toks[0]))
+            else:
+                nums = [float(t) for t in toks if _is_number(t)]
+                if nums: self.stack.append(nums)
+            return
         i = 0
         n = len(toks)
         while i < n:
@@ -306,6 +314,70 @@ class CalcREPL:
         if name in pre:
             return pre[name]
         raise ValueError(f"undefined variable: {name}")
+
+    def _build_smart_tokens(self, line: str) -> List[Any]:
+        """Tokenize rpn text, turning [ ... ] into embedded list tokens (for stats + prog bodies)."""
+        parts = [p for p in line.strip().split() if p]
+        toks: List[Any] = []
+        i = 0
+        while i < len(parts):
+            p = parts[i]
+            if p == "[":
+                lst: List[Any] = []
+                i += 1
+                while i < len(parts) and parts[i] != "]":
+                    pp = parts[i].strip().strip(",").strip("'\"")
+                    if not pp: i += 1; continue
+                    try: lst.append(float(pp))
+                    except ValueError: lst.append(pp)
+                    i += 1
+                if i < len(parts) and parts[i] == "]": i += 1
+                toks.append(lst)
+                continue
+            pc = p.strip(",").strip("'\"")
+            if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^"):
+                toks.append(pc)
+            else:
+                try: toks.append(float(pc))
+                except ValueError: toks.append(("var", pc))
+            i += 1
+        # normalize list name sto -> list sto name for engine
+        for ii in range(len(toks)-2):
+            if isinstance(toks[ii], (list,tuple)) and isinstance(toks[ii+2], str) and toks[ii+2] in ("sto","store","->"):
+                nm = toks[ii+1]; st = toks[ii+2]; toks[ii+1]=st; toks[ii+2]=nm; break
+        return toks
+
+    def _eval_rpn_text(self, line: str) -> Any:
+        toks = self._build_smart_tokens(line)
+        if not toks: return None
+        list_ops = ("sum","mean","stdev","stats_sum","stats_mean","stats_stdev","len","size")
+        if isinstance(toks[-1], str) and toks[-1] in list_ops:
+            op = toks.pop()
+            data = []
+            while toks and _is_number(toks[-1]):
+                data.insert(0, toks.pop())
+            if data: toks.append(data)
+            toks.append(op)
+        return eval_rpn(toks, self.env)
+
+    def _maybe_make_prog_from_text(self, line: str) -> Any:
+        toks = self._build_smart_tokens(line)
+        for ii in range(len(toks)-2):
+            v = toks[ii]
+            if isinstance(v, (list, tuple)):
+                for off in (1, 2):
+                    if ii + off >= len(toks): continue
+                    op = toks[ii + off]
+                    if isinstance(op, str) and op in ("sto", "store", "->"):
+                        nt = toks[ii + 1] if off == 2 else (toks[ii + 2] if ii + 2 < len(toks) else None)
+                        if isinstance(nt, tuple) and nt[0] == "var": name = nt[1]
+                        elif isinstance(nt, str): name = nt.strip("'\"")
+                        else: continue
+                        body = list(v)
+                        if any(not _is_number(x) for x in body):
+                            return make_prog(name, body, env=self.env)
+                        return None
+        return None
 
     def _handle_dot(self, line: str) -> Any:
         parts = line.split(None, 1)
