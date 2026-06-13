@@ -124,6 +124,7 @@ if os.path.isdir("handoffs"):
     print("Recent handoffs:", hs)
 print("Run example: ./tools/ralph.sh docs/PGR.md docs/ClaudeQA.md 0 0")
 PYEOF
+      echo "Active auditor: $AUDITOR (bin: $AUDITOR_BIN , flags: $AUDITOR_FLAGS)"
       echo "════════════════════════════════════════════════════════"
       exit 0
       ;;
@@ -310,9 +311,58 @@ EOF
   esac
 }
 
+# ── option parsing for -a/--auditor (must run BEFORE subcommand detection) ─────
+# Supports the requested CLI switch: ./tools/ralph.sh -a claude status
+# ./tools/ralph.sh -a codex complete-phase "msg"
+# ./tools/ralph.sh -a grok ...
+# The AUDITOR_BIN + FLAGS are then used by run_claude_qa (and printed in status).
+# Option parsing shifts them away so the existing early subcommand guard + positional
+# parsing see a clean $1 (status / complete-phase / PGR etc).
+while [[ $# -gt 0 && "$1" == -* ]]; do
+  case "$1" in
+    -a|--auditor)
+      shift
+      if [[ $# -eq 0 ]]; then
+        echo "Error: -a/--auditor requires one of: claude codex grok" >&2
+        exit 1
+      fi
+      AUDITOR="$1"
+      case "$AUDITOR" in
+        claude|claude*)
+          AUDITOR_BIN="claude"
+          AUDITOR_FLAGS="--dangerously-skip-permissions"
+          ;;
+        codex)
+          AUDITOR_BIN="codex"
+          AUDITOR_FLAGS="exec --full-auto"
+          ;;
+        grok)
+          AUDITOR_BIN="grok"
+          AUDITOR_FLAGS="--single"
+          ;;
+        *)
+          # Custom/unknown auditor name: treat the value as the bin, keep prior FLAGS or default
+          AUDITOR_BIN="$AUDITOR"
+          AUDITOR_FLAGS="${AUDITOR_FLAGS:---dangerously-skip-permissions}"
+          ;;
+      esac
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    *)
+      # Not our option; stop so normal subcmd/positional logic can see it (or error later)
+      break
+      ;;
+  esac
+done
+
 # Early subcommand intercept (before normal arg defaults). This fixes prior
 # breakage where `complete-phase "real msg"` would clobber CLAUDEQA_FILE and
 # cause msg to be lost (handoffs showed "Implementer Message: complete-phase").
+# (Now safe to run after -a options have been consumed.)
 if [[ $# -gt 0 ]]; then
   first_arg="$1"
   if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" ]]; then
@@ -456,16 +506,29 @@ NEEDS WORK - DO NOT ADVANCE
 Also print a short one-line summary to stdout at the end."
 
   # Use the AUDITOR_BIN/FLAGS from -a parsing (falls back to claude if not set).
-  # Use array for the command to avoid fragile quoting in long prompts with ( ) ; etc.
+  # Build array safely. Attach the prompt arg using the correct flag/position per auditor
+  # type so -a codex / -a grok produce runnable commands (not always forcing -p).
+  # claude: ... -p "prompt"
+  # codex:  ... "prompt"   (after exec --full-auto)
+  # grok:   ... "prompt"   (after --single)
   local -a cmd
   if [[ -n "$AUDITOR_BIN" ]]; then
     cmd=( "$AUDITOR_BIN" )
-    # split FLAGS safely
     for f in $AUDITOR_FLAGS; do cmd+=( "$f" ); done
   else
     cmd=( claude --dangerously-skip-permissions )
   fi
-  cmd+=( -p "$auditor_prompt" )
+
+  case "$AUDITOR" in
+    codex|grok)
+      # Prompt is a trailing positional argument for these CLIs
+      cmd+=( "$auditor_prompt" )
+      ;;
+    *)
+      # claude and fallbacks use -p
+      cmd+=( -p "$auditor_prompt" )
+      ;;
+  esac
 
   if ! timeout 180 "${cmd[@]}" >> claude_report.txt 2>&1; then
     echo "[ERROR] Local $AUDITOR review timed out or failed on Phase ${phase}." >> claude_report.txt
