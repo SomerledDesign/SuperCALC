@@ -25,24 +25,61 @@ cd "$PROJECT_DIR"
 
 echo "[ralph] Sandbox: $PROJECT_DIR"
 
+# Unconditional safe defaults (so complete-phase / status when invoked as $1 never
+# see unbound for these when printing instructions or doing fallbacks).
+PGR_FILE="docs/PGR.md"
+CLAUDEQA_FILE="docs/ClaudeQA.md"
+START_PHASE="0"
+END_PHASE="7"
+
 # ── colors (hoisted so subcommands like complete-phase can use ok/fail early) ─────
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 CYAN='\033[0;36m'; BOLD='\033[1m'; RESET='\033[0m'
 
 log()  { echo -e "${CYAN}[ralph]${RESET} $*"; }
+
+# Auditor config for full-loop (ralph.sh 0 7 etc). complete-phase path is the primary for
+# PGR "implementer does work then hands off". These prevent unbound var under set -u and
+# make logs + error msgs sensible. Support optional -a / env for custom auditor binary
+# (e.g. different claude model or codex wrapper) without breaking existing calls.
+AUDITOR="${AUDITOR:-claude}"
+AUDITOR_BIN="${AUDITOR_BIN:-${AUDITOR}}"
+AUDITOR_FLAGS="${AUDITOR_FLAGS:---dangerously-skip-permissions}"
 ok()   { echo -e "${GREEN}[ralph]${RESET} $*"; }
 warn() { echo -e "${YELLOW}[ralph]${RESET} $*"; }
 fail() { echo -e "${RED}[ralph]${RESET} $*"; }
 
-# ── argument parsing ────────────────────────────────────────────────────────────
-PGR_FILE="${1:-docs/PGR.md}"
-CLAUDEQA_FILE="${2:-docs/ClaudeQA.md}"
-START_PHASE="${3:-0}"
-END_PHASE="${4:-7}"
+# ── helpers hoisted VERY early (before any handle_subcommand or early intercept) ──
+# This fixes the "current_phase: command not found" / "LOOP_STATE.json: command not found"
+# class of errors when complete-phase is the first arg (the main root cause behind
+# the permission-denied / cmd-not-found / syntax errors in the provided claude_report.txt).
+current_phase() {
+  if [[ -f docs/LOOP_STATE.json ]]; then
+    python3 -c '
+import json
+try:
+    data = json.load(open("docs/LOOP_STATE.json"))
+    print(int(data.get("current_phase", 0)))
+except:
+    print(0)
+' 2>/dev/null || echo 0
+  else
+    echo 0
+  fi
+}
 
-# --- subcommand handling (status / help) for Phase 0 automation criteria + PGR ---
+phase_cleared() {
+  # Strict clearance signals only. "APPROVED" was removed because it appears in
+  # "APPROVED WITH MINORS" reviews that still end with "NEEDS WORK - DO NOT ADVANCE".
+  # This prevents false-positive phase advancement.
+  grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE|CLEARED TO ADVANCE" claude_report.txt 2>/dev/null
+}
+
+# ── robust subcommand detection (supports `./ralph.sh complete-phase "msg"` cleanly) ──
+# Must be early so complete-phase/status can be used before PGR/CLAUDEQA defaults.
+# We detect subcmd on $1, shift, then call handle which receives remaining args for msg etc.
 handle_subcommand() {
-  local cmd="$1"
+  local cmd="$1"; shift || true
   case "$cmd" in
     status|--status)
       echo "════════════════════════════════════════════════════════"
@@ -86,19 +123,26 @@ PYEOF
       # - updates LOOP_STATE.json (status=awaiting_qa, last_handoff, history note)
       # - prints copy-paste ready prompt for local claude (per ClaudeQA.md)
       # Does NOT auto-run claude or the full loop; that is done by `ralph.sh <phases>` or human.
+      # FIXED: now correctly captures user-provided description as ${msg} even when invoked
+      # as first arg (previous versions lost it into CLAUDEQA_FILE or used subcmd name).
       local msg="${1:-phase inc complete}"
       echo "════════════════════════════════════════════════════════"
       echo "  ralph.sh complete-phase — generate handoff + await QA"
       echo "════════════════════════════════════════════════════════"
 
+      # Best-effort clean of transient report so dirty check doesn't surprise on retry flows.
+      git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
+
       # 1. Git must be clean (or only untracked we intend to leave)
-      # Note: use || true after grep to be robust under set -euo pipefail (grep exits 1 on 0 matches)
+      # Note: porcelain " M path" (unstaged) vs "M  path" (staged); previous regex missed
+      # worktree mods (leading space) -> false "clean" reports, violating PGR "commit cleanly".
+      # Also filter claude_report and handoffs consistently.
       local dirty
-      dirty=$(git status --porcelain 2>/dev/null | grep -E '^(M|A|D|R|C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' || true | wc -l | tr -d ' ')
+      dirty=$(git status --porcelain 2>/dev/null | grep -E '^( ?M| ?A| ?D| ?R| ?C|\?\?)' | grep -v '^?? handoffs/' | grep -v '^?? .ralph/' | grep -v 'claude_report.txt' | grep -v '__pycache__' || true | wc -l | tr -d ' ')
       if [[ "$dirty" -gt 0 ]]; then
         fail "Git working tree not clean. Commit or stash changes before complete-phase."
         echo "Dirty (excluding handoffs/ + temps):"
-        git status --porcelain | grep -E '^(M|A|D|R|C|\?\?)' | grep -v 'handoffs/' | grep -v '.ralph/' | grep -v claude_report | grep -v pycache | head -10
+        git status --porcelain | grep -E '^( ?M| ?A| ?D| ?R| ?C|\?\?)' | grep -v 'handoffs/' | grep -v '.ralph/' | grep -v claude_report | grep -v pycache | head -10
         exit 1
       fi
       ok "Git tree clean. Proceeding with handoff."
@@ -120,6 +164,7 @@ PYEOF
       changed=$(git diff --name-only HEAD~1 2>/dev/null | head -30 || git status --porcelain | head -20 || echo 'first commit or n/a')
 
       # Build rich handoff (modeled on prior examples + ClaudeQA expectations)
+      # Use unquoted heredoc only for the sections that require immediate $( ) expansion.
       cat > "$handoff" <<HFD
 # Ralph Loop Handoff — Phase ${phase}
 **Generated**: $(date -Iseconds)
@@ -141,7 +186,12 @@ Also write full report to claude_report.txt .
 ## 2. Phase Goals & Success Criteria
 (Excerpt from docs/PHASES.md for the active phase)
 \`\`\`
-$(sed -n "/^## Phase ${phase} /,/^## /p" docs/PHASES.md | head -60 || echo "(see docs/PHASES.md)")
+$(sed -n "/^## Phase ${phase} /,/^## /p" docs/PHASES.md | head -80 || python3 -c "
+import re,sys
+txt=open('docs/PHASES.md').read()
+m=re.search(r'## Phase ${phase} —[^\n]*\n(.*?)(?=\n## |\Z)', txt, re.S)
+print(m.group(1)[:3000] if m else '(see docs/PHASES.md)')
+" 2>/dev/null || echo "(see docs/PHASES.md)")
 \`\`\`
 
 ## 3. What Was Delivered (implementer claim)
@@ -159,7 +209,8 @@ ${gitlog}
 After review: address any Blockers/Majors, then either re-run complete-phase for fixes or (on clearance) let automation/script advance phase.
 HFD
 
-      # Update LOOP_STATE for the handoff
+      # Update LOOP_STATE for the handoff. Use shell-expanded vars for note/hname safely.
+      local note_str="Handoff generated: handoffs/${hname}"
       python3 - <<PYEOF
 import json, datetime, os
 data = {}
@@ -170,8 +221,8 @@ ph = int(data.get("current_phase", ${phase}))
 data["status"] = "awaiting_qa"
 data["last_handoff"] = "handoffs/${hname}"
 hist = data.setdefault("phase_history", [])
-# append note for this handoff if not duplicate
-note = f"Handoff generated: { 'handoffs/${hname}' }"
+# append note for this handoff if not duplicate (note_str is shell-expanded into this source)
+note = "${note_str}"
 if not any(note in str(h) for h in hist[-3:]):
     if isinstance(hist, list):
         # best effort append to last entry or add
@@ -179,7 +230,7 @@ if not any(note in str(h) for h in hist[-3:]):
             hist[-1].setdefault("notes", []).append(note)
         else:
             hist.append({"phase": ph, "notes": [note]})
-data["notes"] = data.get("notes", "") + f"; complete-phase at ${ts}"
+data["notes"] = data.get("notes", "") + "; complete-phase at ${ts}"
 with open("docs/LOOP_STATE.json", "w") as f:
     json.dump(data, f, indent=2)
 print("LOOP_STATE updated for awaiting_qa")
@@ -190,11 +241,14 @@ PYEOF
       echo "════════════════════════════════════════════════════════"
       echo "COPY-PASTE PROMPT FOR CLAUDE (local claude CLI):"
       echo "════════════════════════════════════════════════════════"
+      # Pre-read to reduce expansion surprises in the printed instructions.
+      local claudeqa_inline
+      claudeqa_inline=$(cat "$CLAUDEQA_FILE" 2>/dev/null || echo "(ClaudeQA.md not readable here; use file directly from docs/)")
       cat <<PROMPT
 You are the independent auditor. Follow this ClaudeQA.md document with absolute discipline.
 
 === ClaudeQA.md ===
-$(cat "$CLAUDEQA_FILE" 2>/dev/null || echo "(ClaudeQA.md not readable here; use file)")
+${claudeqa_inline}
 === END ClaudeQA.md ===
 
 This is the handoff after implementer work on Phase ${phase}.
@@ -240,35 +294,22 @@ EOF
   esac
 }
 
-# ── helpers (hoisted early so handle_subcommand for complete-phase/status can call them) ──
-current_phase() {
-  if [[ -f docs/LOOP_STATE.json ]]; then
-    python3 -c '
-import json
-try:
-    data = json.load(open("docs/LOOP_STATE.json"))
-    print(int(data.get("current_phase", 0)))
-except:
-    print(0)
-' 2>/dev/null || echo 0
-  else
-    echo 0
+# Early subcommand intercept (before normal arg defaults). This fixes prior
+# breakage where `complete-phase "real msg"` would clobber CLAUDEQA_FILE and
+# cause msg to be lost (handoffs showed "Implementer Message: complete-phase").
+if [[ $# -gt 0 ]]; then
+  first_arg="$1"
+  if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" ]]; then
+    handle_subcommand "$@"
+    # handle_subcommand always exits for these
   fi
-}
-
-phase_cleared() {
-  # Strict clearance signals only. "APPROVED" was removed because it appears in
-  # "APPROVED WITH MINORS" reviews that still end with "NEEDS WORK - DO NOT ADVANCE".
-  # This prevents false-positive phase advancement.
-  grep -qiE "CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE|CLEARED TO ADVANCE" claude_report.txt 2>/dev/null
-}
-
-# Detect if first positional after implicit is a subcommand (or if PGR was defaulted but 1st arg looks like cmd)
-if [[ "$PGR_FILE" == "status" || "$PGR_FILE" == "help" || "$PGR_FILE" == "--help" || "$PGR_FILE" == "-h" || "$PGR_FILE" == "--status" || "$PGR_FILE" == "complete-phase" ]]; then
-  handle_subcommand "$PGR_FILE"
-elif [[ "$START_PHASE" == "status" || "$START_PHASE" == "help" || "$START_PHASE" == "--help" || "$START_PHASE" == "-h" || "$START_PHASE" == "--status" || "$START_PHASE" == "complete-phase" ]]; then
-  handle_subcommand "$START_PHASE"
 fi
+
+# ── argument parsing (normal full-loop path) ─────────────────────────────────────
+PGR_FILE="${1:-docs/PGR.md}"
+CLAUDEQA_FILE="${2:-docs/ClaudeQA.md}"
+START_PHASE="${3:-0}"
+END_PHASE="${4:-7}"
 
 if [[ ! -f "$PGR_FILE" ]]; then
   echo "Error: PGR file '$PGR_FILE' not found." >&2
@@ -281,7 +322,7 @@ fi
 
 MAX_RETRIES=3
 
-# (helpers current_phase/phase_cleared hoisted earlier for subcommand dispatch)
+# (current_phase + phase_cleared are defined at the very top, before handle_subcommand + early dispatch)
 
 run_grok() {
   local phase="$1"
@@ -363,18 +404,22 @@ After you are done, it will be re-audited."
 
 run_claude_qa() {
   local phase="$1"
-  log "Running Claude (auditor) — Phase ${phase}..."
+  log "Running ${AUDITOR} (auditor) — Phase ${phase}..."
 
-  # Lean prompt: tell claude to read the actual files from the workspace using its tools.
-  # This avoids embedding the entire ClaudeQA.md + huge context every time (the main cause of timeouts/hangs).
-  local claude_prompt="You are the independent auditor. Follow exactly the instructions in the file docs/ClaudeQA.md (use the Read tool on it).
+  # Lean prompt: tell the auditor to read the actual files from the workspace using its tools.
+  # This avoids embedding the entire ClaudeQA.md + huge context every time.
+  # Phase-aware ls (prefers the handoff for *this* phase) + explicit Read of LOOP/PHASES.
+  # Avoids the prior phase-0 hardcode that produced empty ls results + partial "message got cut off"
+  # symptoms and any downstream shell parse of instruction text.
+  local auditor_prompt="You are the independent auditor. Follow exactly the instructions in the file docs/ClaudeQA.md (use the Read tool on it).
 
 Current phase: ${phase}
 
 Handoff for this increment:
 - Recent changes: run Bash(git log --oneline -5) and Bash(git diff HEAD~1 --name-only) to see what Grok just did.
-- Read the most recent handoff file: ls handoffs/phase-0-*.md | tail -1 then Read it.
-- If claude_report.txt exists, read the prior attempt.
+- Read the most recent handoff file: ls -1 handoffs/phase-${phase}-*-review-request.md 2>/dev/null | tail -1 || ls -1 handoffs/phase-*-review-request.md 2>/dev/null | tail -1 ; then Read the resulting path.
+- Read docs/LOOP_STATE.json and extract the section for Phase ${phase} from docs/PHASES.md .
+- If claude_report.txt exists, read the prior attempt (this may be a retry after QA feedback).
 
 Produce the FULL structured Ralph Loop QA Review report (use the exact format from ClaudeQA.md).
 Write the complete report to claude_report.txt (overwrite the file).
@@ -385,15 +430,25 @@ NEEDS WORK - DO NOT ADVANCE
 
 Also print a short one-line summary to stdout at the end."
 
-  # Use timeout to prevent hard hangs. Claude Code can be slow on first reads but should not hang forever.
-  # The --dangerously-skip-permissions helps with non-interactive runs.
-  if ! timeout 180 claude --dangerously-skip-permissions -p "$claude_prompt" >> claude_report.txt 2>&1; then
-    echo "[ERROR] Local Claude review timed out or failed on Phase ${phase}." >> claude_report.txt
-    fail "Claude QA CLI timed out or errored on Phase ${phase}."
+  # Use the AUDITOR_BIN/FLAGS from -a parsing (falls back to claude if not set).
+  # Use array for the command to avoid fragile quoting in long prompts with ( ) ; etc.
+  local -a cmd
+  if [[ -n "$AUDITOR_BIN" ]]; then
+    cmd=( "$AUDITOR_BIN" )
+    # split FLAGS safely
+    for f in $AUDITOR_FLAGS; do cmd+=( "$f" ); done
+  else
+    cmd=( claude --dangerously-skip-permissions )
+  fi
+  cmd+=( -p "$auditor_prompt" )
+
+  if ! timeout 180 "${cmd[@]}" >> claude_report.txt 2>&1; then
+    echo "[ERROR] Local $AUDITOR review timed out or failed on Phase ${phase}." >> claude_report.txt
+    fail "$AUDITOR QA CLI timed out or errored on Phase ${phase}."
     return 1
   fi
 
-  ok "Claude QA complete for Phase ${phase}. Report appended to claude_report.txt"
+  ok "$AUDITOR QA complete for Phase ${phase}. Report appended to claude_report.txt"
 }
 
 # ── main loop ──────────────────────────────────────────────────────────────────
