@@ -49,7 +49,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from mp.lang.expr import eval_infix, eval_rpn_str, HAS_C_MATH
+from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH
 from mp.lang.prog import make_prog, is_program
 from mp.lib.solver import find_root
 from mp.plot import ascii_plot, cartesian_sample
@@ -197,13 +197,15 @@ class CalcREPL:
 
     def _execute_visible_rpn_words(self, toks: List[Any]) -> None:
         """Direct manip on self.stack + env for pure stack words / sto/rcl / len/stats / neg / EVAL run."""
-        # nums-only or data list: collect/push as single list entry so len/sum etc work on next line
+        # nums-only or data list: collect/push as single list entry *only if 2+ nums* (so "1 2 3 4" -> list for stats; bare "42" or "7" stays scalar)
         if toks and all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks):
-            if len(toks) == 1 and isinstance(toks[0], (list, tuple)):
+            nums = [float(t) for t in toks if _is_number(t)]
+            if len(nums) >= 2:
+                self.stack.append(nums)
+            elif len(nums) == 1:
+                self.stack.append(nums[0])
+            elif len(toks) == 1 and isinstance(toks[0], (list, tuple)):
                 self.stack.append(list(toks[0]))
-            else:
-                nums = [float(t) for t in toks if _is_number(t)]
-                if nums: self.stack.append(nums)
             return
         i = 0
         n = len(toks)
@@ -441,7 +443,7 @@ class CalcREPL:
                 except ValueError:
                     body.append(t)
             p = make_prog(name, body, env=self.env)
-            print(f"stored {p}")
+            # stored {p}  (debug removed for clean demo output)
             return p
         print(f"unknown cmd {cmd}  (try .help)")
         return None

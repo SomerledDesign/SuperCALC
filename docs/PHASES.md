@@ -269,7 +269,7 @@ Update this file's phase sections and status when the automation indicates a gat
 
 **Automation Note**: Use `./tools/ralph.sh complete-phase "phase-5-inc1: CalcREPL unified driver + ui/ + host tests + docs"` for handoff. Hardware (and backlog) human gate before phase complete or phase 6. This is first inc of phase 5; more polish/packaging/CAS/UI in later incs of same phase.
 
-**Current inc1 status**: Host-complete (Ralph Loop Phase 5 attempt 1). CalcREPL + ui/ + test_repl + demo exercising expr/prog/solver/stats(C-fb)/plot(ascii) all green; docs/DECISIONS/README updated; no prior breakage. Awaiting hardware smoke (human) + complete-phase handoff for auditor. Git will be clean at handoff.
+**Current inc1 status**: Host complete for inc1 (Ralph Loop Phase 5 attempt 1). CalcREPL unified driver (infix + rpn fallback, dot cmds for .plot/.solve/.demo, visible stack+env), mp/ui/__init__, tests/test_repl (8+ cases covering mixed entry, prog sto/run via [ ] syntax in repl layer, stats list via space nums, solver+sidefx, ascii integration), run_demo exercises full prior stack end-to-end (infix, len/sum on text-built lists, first-class prog, find_root(Program), plot). Smart list collect + [body]'name' sto only in REPL (thin, no core parser change or scope creep). All host tests + prior green. Docs/PHASES/DECISIONS/README refreshed. No C. On-device smoke + HW (backlog 0-4) human step after UF2. Ready for ralph complete-phase.
 
 **Phase 5 Success Criteria (overall phase, for later incs)**:
 - Runnable on-device: enter calc mode or run demo from base REPL/ dashboard; mixed algebraic + direct RPN entry, program define/call, .solve/.plot quick tools all feel responsive on QWERTY + 320x320 text.

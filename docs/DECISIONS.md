@@ -349,6 +349,11 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 
 **Date**: 2026-06 Phase 5 inc1 (attempt 1)
 
+### REPL text list construction for stats (UI layer only)
+**Decision**: In CalcREPL rpn fallback and visible stack driver, multi-number lines ("1 2 3 4") or lines ending in len/sum/mean/stdev are pre-processed (in _build_smart_tokens + _eval_rpn_text + data collect in _execute_visible) to wrap the run into a python list token before feeding eval_rpn. Single bare numbers remain scalars. Bracket [ ... ] syntax supported only for prog sto in the driver (reorders + make_prog if body has non-nums). No changes to expr.py to_rpn / eval_rpn_str / list handling, and no infix list literals.
+**Rationale**: Enables the documented/help examples and test cases ("1 2 3 sum", cross-line len after data entry, "[2 '*'] 'dbl' sto") while staying strictly inside Phase 5 scope (REPL orchestration + packaging foundations) and "no new syntax for lists" / thin reuse. The list data model and stats ops were already delivered in Phase 4; REPL just makes them conveniently usable from text entry.
+**Date**: 2026-06 Phase 5 inc1 (attempt 1)
+
 ### Packaging & import surface for phase 5 start
 **Decision**: No root supercalc.py or full package __init__ yet (kept for a later polish inc). Entry via `from mp.ui.calc_repl import CalcREPL, run_demo`; tests and solver-style ROOT path insert inside modules that need standalone run. mp/ui/__init__.py provides clean reexport. Documented in module docstring + PHASES/ README.
 
