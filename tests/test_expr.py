@@ -224,6 +224,16 @@ def test_phase4_stats_rpn_ops():
     assert approx( eval_rpn( [p, "run"] ), 6.0 )
     print("OK phase4 stats_rpn_ops (list + sum/mean/stdev, in prog)")
 
+def test_phase4_list_len_size():
+    # len/size on first-class list data (RPL-ish; small Phase 4 data model extension)
+    assert eval_rpn( [ [10,20,30], "len" ] ) == 3.0
+    assert eval_rpn( [ [42], "size" ] ) == 1.0
+    assert approx( eval_rpn( [ [1,2,3,4], "len", 2, "*" ] ), 8.0 )  # len then arith
+    # in program body + sto list + len (dup+sto+rcl to observe side effect + compute)
+    p = make_prog("listlen", [ [5,6,7,8,9], "len", "dup", "sto", "n", "rcl", "n", "+" ])  # 5 + 5
+    assert approx( eval_rpn( [p, "run"] ), 10.0 )
+    print("OK phase4 list_len_size (len/size on lists, in rpn/prog)")
+
 def test_phase4_solver_integration():
     from mp.lib.solver import find_root
     import math
@@ -257,6 +267,7 @@ def main():
     test_phase4_list_data_in_rpn()
     test_phase4_stats_rpn_ops()
     test_phase4_solver_integration()
+    test_phase4_list_len_size()
     print("---")
     print("ALL EXPR + PROG TESTS PASSED")
     if not HAS_C_MATH:

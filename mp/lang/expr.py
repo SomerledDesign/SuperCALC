@@ -298,7 +298,7 @@ def _execute_rpn_body(tokens, stack, env):
             continue
         # RPL word call: bare string not a builtin op may be a program name in env (first-class call by word)
         # If resolves to a program, execute inline; otherwise fall through to unknown (or numeric op table).
-        if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev") and op not in EVAL_ALIASES:
+        if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") and op not in EVAL_ALIASES:
             if env and op in env and is_program(env[op]):
                 _execute_rpn_body(env[op].body, stack, env)
                 i += 1
@@ -314,7 +314,7 @@ def _execute_rpn_body(tokens, stack, env):
                 pass
         # numeric or stack op: delegate as much as possible to hybrid (C)
         # For single op we feed a  mini rpn list
-        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev"):
+        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size"):
             # build a 1 or 2 (or 0 for dup etc) arg mini program from current stack state
             # simplest: use leaf calls for numeric, direct manip for stack
             if op in ("dup", "drop", "swap", "over"):
@@ -355,6 +355,14 @@ def _execute_rpn_body(tokens, stack, env):
                 if not isinstance(lst, (list, tuple)):
                     raise ValueError("stdev expects list on stack")
                 stack.append(stats_stdev(lst))
+                i += 1
+                continue
+            if op in ("len", "size"):
+                if not stack: raise ValueError("rpn stack underflow")
+                lst = stack.pop()
+                if not isinstance(lst, (list, tuple)):
+                    raise ValueError("len/size expects list data")
+                stack.append(float(len(lst)))
                 i += 1
                 continue
             # numeric apply via leaf hybrid (C accelerated)
@@ -468,7 +476,7 @@ def eval_rpn_str(rpn_text: str, env=None):
     """Accepts space separated like '2 3 + 4 *' or with names '3.14 sto pi rcl pi 2 *'."""
     toks = []
     for part in rpn_text.strip().split():
-        if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev") or
+        if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") or
             part in EVAL_ALIASES or part in _FUNC_NAMES or part in {"+", "-", "*", "/", "^"}):
             toks.append(part)
         else:

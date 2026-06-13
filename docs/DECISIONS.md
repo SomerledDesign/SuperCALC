@@ -317,3 +317,13 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Rationale**: Keeps version visible for on-device smoke / debugging builds. Documents the phase in the live module.
 
 **Date**: 2026-06 Phase 4 inc1 (attempt 1)
+
+### Phase 4 inc1 follow-on: first-class list length via rpn "len"/"size"
+**Decision**: Added "len" and "size" (aliases) as RPN ops in expr._execute_rpn_body (and eval_rpn_str recognition). They pop a list (or tuple) data value from the (MPy) stack and push its float length (error on non-list). Works for direct rpn tokens, via eval_rpn_str, and inside Program bodies (with sto/rcl of lists and of the len result). No change to C (list data is MPy-side; C stats reduce iterables passed from MPy). Added dedicated host test exercising len+arith, prog+sto+len side-effect observation.
+**Rationale**:
+- Small verifiable slice advancing the "Lists become first-class data values on the RPN/program stack for stats words" goal in Phase 4.
+- Enables useful RPL-style patterns immediately (e.g. a program can compute len of a data list it received or built, then use for mean/stdev normalization or dynamic loops later).
+- Fits "thin boundary" and "C for hot paths": length is trivial data op (like dup/drop); the numeric reduce stays in C via hybrid when stats ops used.
+- No infix list literal parser (still future), no units/CAS, no new C entrypoints.
+- Recorded as explicit incremental data model step (lists now support len in addition to push/sto/rcl/stats reduce).
+**Date**: 2026-06 Phase 4 inc1 (attempt 1, small follow-on slice)
