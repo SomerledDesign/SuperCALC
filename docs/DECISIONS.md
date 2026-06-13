@@ -327,3 +327,31 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 - No infix list literal parser (still future), no units/CAS, no new C entrypoints.
 - Recorded as explicit incremental data model step (lists now support len in addition to push/sto/rcl/stats reduce).
 **Date**: 2026-06 Phase 4 inc1 (attempt 1, small follow-on slice)
+
+---
+
+## 2026-06 (Phase 5 inc1 — REPL + UI integration start)
+
+### REPL driver location and entry strategy (MPy orchestration)
+**Decision**: New mp/ui/calc_repl.py hosts CalcREPL (stack, env, history). enter(line) prefers infix path (eval_infix for algebraic "2+sin(x)", bare nums, vars) and falls back to eval_rpn_str on failure (for stack words "dup"/"drop", rpn sequences "1 2 3 sum", "x rcl"). Dot-commands (.s, .plot expr, .solve f a b, .help) handled before parse for immediate utility and demo of prior libs. batch_run + run_demo for tests + verifiable host output. No changes to lang/expr or lib/* contracts.
+
+**Rationale**:
+- Matches PGR "small verifiable slices" + Phase 5 goal of "full REPL/UI integration" while keeping scope to one driver + docs/tests.
+- "Prefer infix" gives friendly algebraic default (HP-41 style too) while preserving full RPL rpn spirit for power users and program bodies; the fallback heuristic makes "dup" and "2 3 +" Just Work without forcing user to choose mode.
+- Thin boundary / reuse: driver is pure consumer of public eval_infix/eval_rpn_str/make_prog/find_root/ascii_plot/hybrid — same pattern as plot/solver before it. Future C REPL accel or richer UI can feed the identical enter() API.
+- Packaging: ui/ package created; runnable from any python with ROOT on path (matching existing test/solver convention). Keeps REPL-first as specified in Phase 4 success.
+- No scope creep: no framebuffer, no display driver calls yet (text only, works in base pico REPL terminal), no list literal syntax, no new C, no mp/apps impl beyond the demo exercising solver/stats.
+
+**Alternatives considered**:
+- Always-rpn entry only (rejected: loses the friendly infix that Phase1 delivered and users expect for quick calcs).
+- Separate .alg / .rpn submodes (rejected: adds state/complexity for first inc; heuristic + fallback is simpler and sufficient).
+- Put driver in mp/lang/ or root (rejected: ui/ is the documented place for "menus, expression editor, graph view..." in ARCHITECTURE; starts the dir properly).
+
+**Date**: 2026-06 Phase 5 inc1 (attempt 1)
+
+### Packaging & import surface for phase 5 start
+**Decision**: No root supercalc.py or full package __init__ yet (kept for a later polish inc). Entry via `from mp.ui.calc_repl import CalcREPL, run_demo`; tests and solver-style ROOT path insert inside modules that need standalone run. mp/ui/__init__.py provides clean reexport. Documented in module docstring + PHASES/ README.
+
+**Rationale**: Small slice; avoids inventing distribution/packaging before REPL itself is proven. Matches "start populating" without overbuilding. Future inc can add __main__.py, sd persistence, or a frozen module hook.
+
+**Date**: 2026-06 Phase 5 inc1 (attempt 1)

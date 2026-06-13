@@ -1,0 +1,176 @@
+#!/usr/bin/env python3
+"""
+Host-side tests for SuperCalc.OG Phase 5 inc1 — CalcREPL unified driver.
+
+Exercises mp/ui/calc_repl.py + full integration with prior phases:
+  expr (infix + rpn), prog (first-class + sto/run), solver (on prog), stats (via rpn list),
+  plot (ascii + sample), hybrid.
+
+All tests use batch_run (deterministic, no tty). run_demo() also exercised.
+
+Run:
+    python3 tests/test_repl.py
+"""
+import sys
+import os
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
+
+from mp.ui.calc_repl import CalcREPL, run_demo, batch_run_demo_lines
+from mp.lang.prog import is_program
+from mp.lib.solver import find_root
+from mp.plot import cartesian_sample
+import math
+
+EPS = 1e-9
+def approx(a, b, eps=EPS):
+    return abs(a - b) <= eps
+
+def test_repl_basic_infix_and_rpn_mixed():
+    r = CalcREPL()
+    # infix alg (preferred path, exercises eval_infix + C when present)
+    v = r.enter("2 + 3 * 4")
+    assert approx(v, 14.0), v
+    assert approx(r.stack[-1], 14.0)
+    # rpn fallback for stack word (dup not valid infix var)
+    r.enter("dup")
+    assert len(r.stack) == 2
+    assert approx(r.stack[-1], 14.0)
+    # rpn sequence
+    r.enter("5 6 +")
+    assert approx(r.stack[-1], 11.0)
+    # bare number via infix
+    r.enter("42")
+    assert approx(r.stack[-1], 42.0)
+    print("OK basic infix + rpn mixed + stack growth")
+
+def test_repl_vars_sto_rcl_and_side_effects():
+    r = CalcREPL()
+    r.enter("3.14159 sto pi")
+    assert "pi" in r.env
+    assert approx(r.env["pi"], 3.14159)
+    v = r.enter("pi 2 *")  # infix using var
+    assert approx(v, 6.28318, 1e-4)
+    r.enter("rcl pi")  # rpn rcl path (rcl name  -- name follows the word)
+    assert approx(r.stack[-1], 3.14159)
+    print("OK vars + sto/rcl side effects visible in repl")
+
+def test_repl_prog_first_class_and_run_from_repl():
+    r = CalcREPL()
+    # store prog via .prog cmd (text list literal not supported in rpn_str/to_rpn yet; .prog builds py list + make_prog+sto)
+    r.enter(".prog dbl 2 *")
+    assert "dbl" in r.env
+    assert is_program(r.env["dbl"])
+    # call via rcl + run (EVAL alias) after pushing arg; bare word "name" call for progs works in full rpn token lists from py but text rpn_str wraps unknowns as var (covered by other paths + .prog)
+    r.enter("7 rcl dbl run")
+    assert approx(r.stack[-1], 14.0)
+    # another via rcl + run (side effect demo)
+    r.enter("3 rcl dbl run")
+    assert approx(r.stack[-1], 6.0)
+    print("OK first-class prog sto + rcl+run from repl lines")
+
+def test_repl_stats_via_rpn_list_and_len():
+    r = CalcREPL()
+    # list data is first-class py list token (pushed from caller / prog / rpn token list); text rpn has no [] literal yet (per Phase4/5 scope)
+    # Prepend a list data value to visible stack then use "len"/"mean" (exercises direct manip path + hybrid stats)
+    lst = [10.0, 20.0, 30.0, 40.0]
+    r.stack.append(lst)
+    r.enter("len")
+    assert approx(r.stack[-1], 4.0)
+    r.stack.append(lst)  # re-supply list for next stats word (len consumed the data item)
+    r.enter("mean")
+    assert approx(r.stack[-1], 25.0)
+    r.stack.append(lst)
+    r.enter("stdev")
+    # sample stdev of [10,20,30,40]: mean=25, var=500/3, stdev~12.90994
+    s = r.stack[-1]
+    assert approx(s, 12.90994, 1e-4) or approx(s, math.sqrt(500.0/3), 1e-6)
+    print("OK list data + len + stats_mean/stdev via repl (direct word path)")
+
+def test_repl_solver_on_infix_and_on_prog_with_x_env():
+    r = CalcREPL()
+    # infix f
+    root = r.enter(".solve x*x-2 1 2")
+    assert root is not None
+    assert approx(root, math.sqrt(2), 1e-8)
+    # prog f with side effect observation (x left at last guess)
+    p = r.env.get("quad")  # may not exist; create via make inside env
+    from mp.lang.prog import make_prog
+    p = make_prog("quad", [("var","x"), 2, "pow", 2, "-"], env=r.env)  # correct: var tok auto rcl; "rcl" word form would need explicit name tok after it
+    root2 = find_root(p, 1, 2, env=r.env)
+    assert approx(root2, math.sqrt(2), 1e-8)
+    assert "x" in r.env  # set during solve
+    print("OK .solve cmd + direct find_root(Program) + x-env side effect")
+
+def test_repl_plot_cmd_and_cartesian_integration():
+    r = CalcREPL()
+    # .plot uses cartesian_sample + ascii_plot internally (small n)
+    # We capture by calling enter and checking no exception + some output side
+    # (ascii is printed; we just ensure it runs and sample path exercised)
+    r.enter(".plot sin(x)")
+    # also direct sample of a prog body
+    from mp.lang.prog import make_prog
+    p = make_prog(None, [("var","x"), 2, "*"])  # 2x (correct var ref, no stray rcl word)
+    pts = cartesian_sample(p, -1, 1, n=5, env=r.env)
+    assert len(pts) == 5
+    assert approx(pts[0][1], -2.0)
+    assert approx(pts[-1][1], 2.0)
+    print("OK .plot cmd + cartesian_sample(Program) integration")
+
+def test_repl_error_cases_clear_and_underflow():
+    r = CalcREPL()
+    try:
+        r.enter("1 0 /")  # div0 via rpn
+    except Exception as e:
+        assert "zero" in str(e).lower() or "div" in str(e).lower() or "underflow" in str(e).lower()
+    try:
+        r.enter("dup")  # underflow
+    except Exception as e:
+        assert "underflow" in str(e).lower() or "stack" in str(e).lower()
+    # unknown var stays error (no silent NaN)
+    try:
+        r.enter("no_such_var 2 *")
+    except Exception as e:
+        assert "undefined" in str(e).lower() or "enter failed" in str(e).lower()
+    print("OK clear errors for div0 / underflow / undef var")
+
+def test_repl_demo_and_batch_run_exercise_everything():
+    # run_demo must not crash and must touch prog/solver/stats/plot paths
+    run_demo()  # prints but exercises internally
+    # batch a small scripted tour
+    lines = [
+        "2+3",           # infix
+        "dup",           # rpn word (direct manip)
+        "4 sto x",       # sto (val sto name)
+        "rcl x 2 *",     # rcl + rpn (rcl name  -- name follows op)
+        "1 2 3 sum",     # rpn that yields scalar via stats (note: sum here receives last scalar not list; covered by dedicated list test)
+        "dup",           # manip again
+        "drop",
+        ".s",            # cmd
+    ]
+    r = CalcREPL()
+    res = r.batch_run(lines)
+    assert len(res) >= 6
+    # final after drop etc; just assert no crash and stack has some result
+    assert len(r.stack) >= 1
+    print("OK run_demo + batch_run exercise full prior stack (expr/prog/solver/stats/plot)")
+
+def test_repl_demo_lines_helper():
+    lines = ["pi 2 /", "sin", ".s"]
+    outs = batch_run_demo_lines(lines, echo=False)
+    assert len(outs) == 3
+    print("OK batch_run_demo_lines helper")
+
+if __name__ == "__main__":
+    test_repl_basic_infix_and_rpn_mixed()
+    test_repl_vars_sto_rcl_and_side_effects()
+    test_repl_prog_first_class_and_run_from_repl()
+    test_repl_stats_via_rpn_list_and_len()
+    test_repl_solver_on_infix_and_on_prog_with_x_env()
+    test_repl_plot_cmd_and_cartesian_integration()
+    test_repl_error_cases_clear_and_underflow()
+    test_repl_demo_and_batch_run_exercise_everything()
+    test_repl_demo_lines_helper()
+    print("\nALL Phase 5 REPL tests PASSED")

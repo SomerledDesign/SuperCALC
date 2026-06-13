@@ -103,9 +103,9 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 4 — Solvers, Statistics, Units & CAS Foundations (inc1: C stats kernel + MPy solver + list data + reuse)
+**Current Phase (per LOOP_STATE.json)**: 5 — REPL + UI Integration & Packaging Foundations (inc1: integrated CalcREPL driver + ui/ skeleton + host demo harnessing expr/prog/solver/plot/stats; docs + packaging start)
 
-Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0/1/2/3 host complete with QA; hardware smoke backlog (Phase0-3) pending human on real PicoCalc + UF2 including picocalc_plot + prior modules. Phase 4 inc1 start: stats + solver foundations per below. Phase 3 inc1 delivered plot data sampling + ascii + C skel + hygiene; awaiting HW.)
+Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1: REPL/UI foundations per below. Prior phase inc1s delivered core math, prog, plot data+ascii, stats+solver+lists.)
 
 ## Phase 2 — REPL + Stack + HP-style Programmable Language Skeleton
 
@@ -244,7 +244,43 @@ Update this file's phase sections and status when the automation indicates a gat
 - Performance: stats on 1k pts fast via C; solver iters cheap (expr hot path already C).
 - Host + on-device tests + accuracy notes; docs/DECISIONS; clean handoffs.
 
+## Phase 5 — REPL + UI Integration & Packaging Foundations
+
+**Goal**: Tie the prior foundations (expr/infix+RPN, first-class prog, solver, C stats, plot sampling + ascii) into a usable, interactive calculator REPL experience and begin UI/apps packaging. The REPL is the primary user surface on device (text, leveraging base terminal/keyboard) and host demo. MPy owns the REPL driver + command dispatch + simple "apps" entry (thin reuse); no new C kernel in inc1 (orchestration layer). Start populating mp/ui/ and mp/apps/ with clean skeletons. Offline, RPL-spirit (visible stack, mixed alg/rpn entry, first-class progs callable from REPL, side effects), 320x320 awareness for future render. Small verifiable slice: a working CalcREPL + batch harness + demo that exercises the *entire* prior stack end-to-end from one entry point.
+
+**Deliverables for inc1 (small verifiable slice)**:
+- [x] mp/ui/calc_repl.py (new): CalcREPL class maintaining stack + env + history. enter(line) supporting: infix algebraic (preferred, e.g. "2+3*sin(pi/2)"), rpn space-sep or stack words ("dup", "1 2 3 sum", "x rcl 2 *") via fallback to eval_rpn_str on infix fail, numbers, var resolve. Special dot-commands: .s/.stack (print), .v/.vars, .plot <expr>, .solve <f> <lo> <hi>, .help, .demo (scripted). batch_run(lines) for non-interactive host testing/demos. run_demo() that exercises prog define+call, stats via rpn list, solver on prog, ascii plot of expr+prog, side-effect sto visible. Pure text, zero dep on hardware drivers.
+- [x] mp/ui/__init__.py: package doc + re-exports (CalcREPL, run_demo, enter etc) for `from mp.ui import ...` or future `import mp.ui.calc_repl`.
+- [x] Host tests: tests/test_repl.py (new, 8+ cases) covering unified enter paths (infix alg, rpn ops, mixed), dot cmds (plot/solve/prog), first-class prog sto/run from repl lines, solver+stats+plot integration observed in repl state, error underflow/undef clear, side effects. All green on fallback. Existing tests untouched and still pass.
+- [x] Packaging light: demo runnable via `python3 -c 'from mp.ui.calc_repl import run_demo; run_demo()'` (and direct module run); sys.path hygiene matching solver/plot tests; documented entry in module + README note. No top-level supercalc.py yet (future polish inc).
+- [x] Docs: PHASES.md (this Phase 5 inc1 section + current marker update + status), DECISIONS.md (REPL driver location + entry heuristic + packaging approach), README.md status line refresh. No scope creep (no pixels/framebuffer, no interactive graph UI, no new syntax for lists/units, no C changes, no mp/apps full apps yet — foundations + REPL tie-in only).
+- [ ] On-device smoke: after UF2, from base REPL: `from mp.ui.calc_repl import CalcREPL, run_demo; run_demo(); r=CalcREPL(); r.enter("sin(pi/4)"); r.enter(".s"); r.enter("2 3 +"); ...` + .plot/.solve exercising prior modules (human step).
+- [ ] Hardware verification recorded (ralph or LOOP_STATE). Backlog HW 0-4 still pending.
+
+**Success Criteria (inc1)**:
+- Host: batch_run or demo exercises infix + rpn words + Program sto/run + list stats + find_root(Program) + ascii_plot all from the REPL driver; final stack/env observable and correct; no crashes on errors.
+- Unified entry feels natural for HP user: "2+3*4" (alg via infix/C) and "dup 5 sto x" (stack+sto via rpn) both work in same session; .cmds give immediate value (e.g. quick plot shape on terminal, solve result pushed or printed).
+- Thin + reuse: CalcREPL is <200 LOC orchestration; zero duplication of eval logic; calls exactly the public prior APIs (eval_infix, eval_rpn_str, make_prog, find_root, ascii_plot, hybrid.*). Future UI or device keyboard can feed the same enter().
+- Git clean at handoff; complete-phase produces usable + prompt.
+- Accuracy notes: double + prior kernels sufficient (no new numerics); side effects (sto during solve/plot inside repl) visible exactly as before.
+- DECISIONS + PHASES reflect reality; no breakage to build surface or prior modules (expr/prog/hybrid/solver/plot importable and tests green).
+- No new debt: REPL is the "REPL-first" surface called for in Phase4 overall criteria; keeps door open for mp/apps/ and richer ui/ (graph view) in inc2+ without changing contract.
+- On host, `python -c "from mp.ui.calc_repl import run_demo; run_demo()"` produces clean multi-line output showing mixed capabilities (verifiable by eye + in test).
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-5-inc1: CalcREPL unified driver + ui/ + host tests + docs"` for handoff. Hardware (and backlog) human gate before phase complete or phase 6. This is first inc of phase 5; more polish/packaging/CAS/UI in later incs of same phase.
+
+**Current inc1 status**: Host-complete (Ralph Loop Phase 5 attempt 1). CalcREPL + ui/ + test_repl + demo exercising expr/prog/solver/stats(C-fb)/plot(ascii) all green; docs/DECISIONS/README updated; no prior breakage. Awaiting hardware smoke (human) + complete-phase handoff for auditor. Git will be clean at handoff.
+
+**Phase 5 Success Criteria (overall phase, for later incs)**:
+- Runnable on-device: enter calc mode or run demo from base REPL/ dashboard; mixed algebraic + direct RPN entry, program define/call, .solve/.plot quick tools all feel responsive on QWERTY + 320x320 text.
+- Packaging: clean import surface (from mp.ui... or supercalc.*), SD load/save of progs/vars possible (future), versioned module surface.
+- UI start: mp/ui/ has at least calc_repl + first sketch of menu or graph viewport stub (text or using display via base if added).
+- Full apps surface begins in mp/apps/ (e.g. solver app, stats summary) while REPL remains primary.
+- Richer integration: progs can be edited/stored/loaded from REPL; history, lastx, more HP words.
+- Performance: REPL loop cheap (evals already hit C where hot); no perceptible lag for typical use.
+- Host + on-device tests + accuracy notes; docs/DECISIONS; clean handoffs.
+
 ## Later Phases (High Level)
 
 (For reference — see prior outline and ARCHITECTURE.md; only current phase work is active.)
-- Phase 5+: Polish, packaging, full REPL/UI integration, richer CAS, units completeness, 3D/implicit graphing, performance tuning, SD program lib examples.
+- Phase 6+: Richer CAS (eigenmath surface), units completeness + arithmetic, 3D/implicit graphing, performance tuning, SD program library + editor polish, full interactive graphing UI (trace/zoom on 320x320), packaging for distribution.

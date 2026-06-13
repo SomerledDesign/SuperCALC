@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 4 inc1 — Stats + solver foundations (C stats_sum/mean/stdev hot reduce + Welford; mp/lib/solver find_root reuse expr/prog with x-env; lists as first-class rpn stack data + stats ops in expr; host tests green). Builds on Phase 3 plot data. Ralph Loop active (current_phase=4 per script/LOOP_STATE). Hardware smoke backlog (0-3) + this inc pending real PicoCalc UF2. See docs/PHASES.md + handoffs/.
+**Status**: Phase 5 inc1 — REPL + UI foundations (CalcREPL unified infix/rpn driver + mp/ui/ skeleton + batch/demo harness exercising full prior: expr/prog/solver/stats(C)/plot(ascii); host tests green). Ralph Loop active (current_phase=5). Hardware smoke backlog (0-4) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
 
 ## Vision
 
