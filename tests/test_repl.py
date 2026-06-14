@@ -210,21 +210,23 @@ def test_repl_lastx_and_rpn_func_words():
     r3.enter("lastx")
     # after "42" line, entering "lastx" line lifts the 42 as pre for the lastx cmd, pushes 42
     assert approx(r3.stack[-1], 42.0)
-    # sto lastx special: sets dedicated register (and env)
+    # sto lastx special (via core rpn-text path): env updated; next "lastx" word pulls to dedicated + pushes
     r3.enter("99 sto lastx")
-    assert approx(r3.lastx, 99.0)
     assert approx(r3.env.get("lastx", 0), 99.0)
+    r3.enter("lastx")
+    assert approx(r3.stack[-1], 99.0)
+    assert approx(r3.lastx, 99.0)
     r3.enter("lastx 2 *")
     assert approx(r3.stack[-1], 198.0)
-    print("OK abs + lastx lift/sto semantics (pre-op capture + special sto)")
+    print("OK abs + lastx lift/sto semantics (pre-op capture + special sto via env pull)")
 
     # mp.apps surface (solver_app) import + use from repl harness (phase5 packaging)
     app = SolverApp(r3)
     rt = app.solve("x*x-8", 2, 3)
     assert approx(rt, 2.828427, 1e-5)
     assert approx(r3.stack[-1], rt)  # pushed by solve_text when repl bound
-    # direct text solve helper
-    rt2 = solve_text("x+1", 0, 10, env={})
+    # direct text solve helper (use bracket that contains the root)
+    rt2 = solve_text("x*x-1", 0, 2, env={})
     assert approx(rt2, 1.0)
     print("OK mp.apps.solver_app import + SolverApp + solve_text integration")
 

@@ -128,15 +128,20 @@ class CalcREPL:
         if line.startswith("."):
             return self._handle_dot(line)
 
-        # HP LASTx discipline (REPL layer): capture current numeric top as lastx *before* this command runs
-        # (so LASTx holds the X value prior to the operation; classic HP behavior approximated line-at-a-time).
-        if self.stack and _is_number(self.stack[-1]):
-            self.lastx = float(self.stack[-1])
-            self.env["lastx"] = self.lastx  # mirror so infix "lastx+1", rcl lastx, and prog sidefx see it
-
         # Heuristic: alg cues or (no user prog name present) -> try infix first for friendly alg + C path
         parts = [p for p in line.split() if p]
         has_prog_name = any(p in self.env and is_program(self.env.get(p)) for p in parts)
+
+        # HP LASTx discipline (REPL layer): capture current numeric top as lastx *before* this command runs
+        # (LASTx holds X prior to the operation). Guard: skip lift for pure sto/rcl/lastx query lines so
+        # "N sto lastx" or "lastx" query itself does not clobber a just-set register with pre-line top.
+        is_sto_line = any(p in ("sto", "store", "->") for p in parts)
+        is_rcl_line = any(p in ("rcl", "recall") for p in parts)
+        is_lastx_line = any(p.lower() in ("lastx", "last_x") for p in parts) if parts else False
+        if not (is_sto_line or is_rcl_line or is_lastx_line):
+            if self.stack and _is_number(self.stack[-1]):
+                self.lastx = float(self.stack[-1])
+                self.env["lastx"] = self.lastx  # mirror so infix "lastx+1", rcl lastx, and prog sidefx see it
         has_alg_cue = any(c in line for c in "()^") or ("(" in line and ")" in line) or any(op + "(" in line for op in ("sin","cos","tan","sqrt","log"))
         has_infix_op = any(op in line for op in ("+", "-", "*", "/", "^"))
         if (has_alg_cue or has_infix_op) and not has_prog_name:
@@ -327,7 +332,9 @@ class CalcREPL:
                 i += 1
                 continue
             if op in ("lastx", "LASTX", "last_x"):
-                # push the dedicated LASTx (pre-op X); works for pure "lastx" line too
+                # push dedicated LASTx; pull from env if a core sto lastx happened in prior line (e.g. via _eval_rpn path)
+                if "lastx" in self.env and _is_number(self.env.get("lastx")):
+                    self.lastx = float(self.env["lastx"])
                 self.stack.append(self.lastx)
                 i += 1
                 continue
@@ -369,7 +376,9 @@ class CalcREPL:
     def _resolve_for_visible(self, name):
         lname = name.lower()
         if lname in ("lastx", "last_x", "last"):
-            # dedicated HP LASTx register (lift-captured prior X); takes precedence for classic feel
+            # dedicated HP LASTx; pull latest if core sto lastx (rpn-text/expr path) wrote env since last lift
+            if "lastx" in self.env and _is_number(self.env.get("lastx")):
+                self.lastx = float(self.env["lastx"])
             return self.lastx
         if name in self.env:
             return self.env[name]
