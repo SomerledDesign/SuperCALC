@@ -43,8 +43,10 @@ Public:
 import os
 import sys
 
-# No typing imports or __future__ annotations: per Phase 5 NEEDS WORK auditor blocker,
-# these prevent clean import on MicroPython device. All annotations dropped or moved to docs.
+# No direct typing imports or __future__ annotations here (and none in the entire
+# import graph: prog/plot/solver_app fully purged of future+typing+annot sigs in fix2).
+# Importing calc_repl (and solver) now succeeds with zero typing module present.
+# This fixes the Phase 5 QA reported MicroPython incompatibility Blocker.
 # Ensure project root on path for standalone runs (matches solver.py / test_* pattern)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:

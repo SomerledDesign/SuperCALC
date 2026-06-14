@@ -26,26 +26,16 @@ for simple line renders later). ymin/ymax auto or supplied in future viewport wr
 
 Error handling: individual sample errors -> y=nan (keeps plot continuous for later render).
 """
-from __future__ import annotations
-try:
-    from typing import Any, List, Tuple, Optional, Dict, Union
-    Point = Tuple[float, float]
-except ImportError:
-    # MicroPython compatibility (no typing module). from __future__ annotations
-    # (above) makes all : annotations and -> returns unevaluated (string form),
-    # so runtime names for types are not required except for this top-level alias.
-    # Dummies allow the alias line and any annotation strings that reference them.
-    # Fixes transitive import of calc_repl (which does "from mp.plot import ...")
-    # and solver (pulls prog) on device. Addresses Phase 5 QA blocker.
-    Any = List = Tuple = Optional = Dict = Union = object
-    Point = tuple
-
+# MicroPython / device compatibility: no from __future__ annotations, no typing imports
+# (even guarded). All annotations stripped from sigs and locals so that import of
+# this module (and thus ui/calc_repl, solver, apps) succeeds with zero typing module
+# on stock firmware. (Fix for Phase 5 reported Blocker.)
 import math as _py_m
 
 from mp.lang.expr import to_rpn, eval_rpn
 from mp.lang.prog import is_program
 
-def linspace(xmin: float, xmax: float, n: int = 320) -> List[float]:
+def linspace(xmin, xmax, n=320):
     """Return n evenly spaced floats from xmin to xmax (inclusive).
     Default n=320 matches PicoCalc 320x320 screen columns for direct 1:1 sampling.
     Used internally by cartesian_sample; exposed for host tooling / custom x-grids.
@@ -59,10 +49,10 @@ def linspace(xmin: float, xmax: float, n: int = 320) -> List[float]:
 
 
 def sample_expr(
-    expr: Union[str, List[Any], Any],
-    x: float,
-    env: Optional[Dict[str, Any]] = None
-) -> float:
+    expr,
+    x,
+    env=None
+):
     """Evaluate expr at a single x (helper; sets 'x' in env for this call)."""
     if env is None:
         env = {}
@@ -81,12 +71,12 @@ def sample_expr(
     return float("nan")
 
 def cartesian_sample(
-    expr: Union[str, List[Any], Any],
-    xmin: float = -10.0,
-    xmax: float = 10.0,
-    n: int = 320,
-    env: Optional[Dict[str, Any]] = None
-) -> List[Point]:
+    expr,
+    xmin=-10.0,
+    xmax=10.0,
+    n=320,
+    env=None
+):
     """
     Sample expr over [xmin, xmax] with n points. Returns list of (x, y) in order.
 
@@ -120,7 +110,7 @@ def cartesian_sample(
         # last resort: assume iterable of tokens
         tokens = list(expr) if hasattr(expr, "__iter__") else []
 
-    points: List[Point] = []
+    points = []
     for x in xs:
         env["x"] = float(x)
         try:
@@ -134,7 +124,7 @@ def cartesian_sample(
     return points
 
 
-def ascii_plot(points: List[Point], width: int = 64, height: int = 16, title: str = "") -> str:
+def ascii_plot(points, width=64, height=16, title=""):
     """
     Render sampled (x,y) points as a compact ascii plot (multi-line string).
     Pure Python, zero deps, works on host REPL and on-device terminal.
@@ -181,13 +171,13 @@ def ascii_plot(points: List[Point], width: int = 64, height: int = 16, title: st
         ymin -= delta
         ymax += delta
 
-    def to_col(x: float) -> int:
+    def to_col(x):
         if xmax == xmin:
             return width // 2
         t = (x - xmin) / (xmax - xmin)
         return max(0, min(width - 1, int(round(t * (width - 1)))))
 
-    def to_row(y: float) -> int:
+    def to_row(y):
         # screen row 0 = top = high y
         if ymax == ymin:
             return height // 2
@@ -205,7 +195,7 @@ def ascii_plot(points: List[Point], width: int = 64, height: int = 16, title: st
         grid[r][c] = '*'
 
     # Assemble frame
-    lines: List[str] = []
+    lines = []
     if title:
         lines.append(title[:width])
 

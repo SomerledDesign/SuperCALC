@@ -230,6 +230,51 @@ def test_repl_lastx_and_rpn_func_words():
     assert approx(rt2, 1.0)
     print("OK mp.apps.solver_app import + SolverApp + solve_text integration")
 
+
+def test_repl_micropython_typing_guard_and_compact_infix_robust():
+    """Exercise the Phase 5 blocker fix + ensure compact infix never pushes wrong data (var tuple / list / str).
+    The guard test uses __import__ patch to simulate firmware without "typing" module (common on MPy ports).
+    Covers the early infix heuristic path for no-space alg and the last-fallback compact path indirectly
+    via varied alg lines that must always yield scalar on stack.
+    """
+    import builtins as _bi
+    _orig_imp = _bi.__import__
+    def _block_typing(name, *a, **k):
+        if isinstance(name, str) and (name == "typing" or name.startswith("typing.")):
+            raise ImportError("No module named 'typing' (sim MPy)")
+        return _orig_imp(name, *a, **k)
+    _bi.__import__ = _block_typing
+    try:
+        # reimport under block to prove no hard dep on typing (the exact blocker)
+        for m in list(sys.modules.keys()):
+            if m.startswith("mp.lang") or m.startswith("mp.plot") or m.startswith("mp.lib.solver") or m.startswith("mp.ui.calc_repl") or m.startswith("mp.apps"):
+                sys.modules.pop(m, None)
+        from mp.ui.calc_repl import CalcREPL as _CR
+        from mp.lib.solver import find_root as _fr
+        from mp.plot import cartesian_sample as _cs
+        print("  (guard) modules imported under blocked typing: OK")
+        r = _CR()
+        # compact infix cases (no spaces) -- must push scalar, never the ('var', '2+3') token or other
+        for expr, expect in [("2+3", 5.0), ("1+2*3", 7.0), ("2^3", 8.0), ("(1+2)*3", 9.0)]:
+            v = r.enter(expr)
+            top = r.stack[-1]
+            assert approx(top, expect), f"{expr} => {top}"
+            assert isinstance(top, (int, float)) and not isinstance(top, (list, tuple, str)), \
+                f"compact infix {expr} pushed wrong data type: {top!r}"
+        # also with var (after sto) and func in compact alg form
+        r.enter("3.5 sto a")
+        v = r.enter("a+0.5")
+        assert approx(v, 4.0)
+        assert isinstance(r.stack[-1], (int, float))
+        v = r.enter("sin(pi/2)+1")
+        assert approx(v, 2.0)
+        assert isinstance(r.stack[-1], (int, float))
+        print("  (guard+compact) multiple no-space infix alg + scalar type asserts: OK")
+    finally:
+        _bi.__import__ = _orig_imp
+    print("OK micropython typing guard (imports+run under no-typing) + compact infix data integrity")
+
+
 if __name__ == "__main__":
     test_repl_basic_infix_and_rpn_mixed()
     test_repl_vars_sto_rcl_and_side_effects()
@@ -241,4 +286,5 @@ if __name__ == "__main__":
     test_repl_demo_and_batch_run_exercise_everything()
     test_repl_demo_lines_helper()
     test_repl_lastx_and_rpn_func_words()
+    test_repl_micropython_typing_guard_and_compact_infix_robust()
     print("\nALL Phase 5 REPL tests PASSED")

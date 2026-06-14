@@ -23,7 +23,6 @@ Host demo:
 
 On device: same imports after UF2; callable from base REPL or CalcREPL lines via import.
 """
-from __future__ import annotations
 import sys
 import os
 

@@ -27,17 +27,10 @@ Integration: expr.eval_rpn and eval_rpn_str recognize the EVAL_ALIASES ("run"/"e
 ops and will execute a Program found on the top of stack (or resolved via rcl) using the
 shared body executor. Duck-types on having a .body attribute + exact isinstance.
 """
-from __future__ import annotations
-try:
-    from typing import Any, List, Optional, Dict
-except ImportError:
-    # MicroPython compatibility (no typing module on stock firmware / many ports).
-    # The from __future__ annotations above ensures that annotation expressions
-    # (e.g. body: List[Any]) are stored as strings and never evaluated at runtime,
-    # so the names are not required after this guard. This fixes the Phase 5
-    # blocker for importing solver.py / calc_repl.py (and their deps) on device.
-    Any = List = Optional = Dict = object
-
+# MicroPython / device compatibility: no 'from __future__ annotations' and no 'typing'
+# imports (guarded or bare) at all. Type annotations stripped from runtime sigs below
+# so importing this module (transitively used by solver/calc_repl/plot/apps) succeeds
+# on plain firmware without a typing module. (Addresses Phase 5 QA Blocker.)
 # expr imports these at load (see mp/lang/expr.py). We do not import expr at top level
 # to keep load order clean; inside run() we import locally for the top-level driver.
 
@@ -52,8 +45,7 @@ class Program:
         Program(body_list)
         Program(name="foo", body=...)
     """
-    def __init__(self, body: Any = None, name: Optional[str] = None,
-                 source: Optional[str] = None, **kw):
+    def __init__(self, body=None, name=None, source=None, **kw):
         # Flexible binding for pre-written tests + clean API
         if body is None and "body" in kw:
             body = kw["body"]
@@ -72,25 +64,23 @@ class Program:
             self.name = name
         self.source = source
 
-    def run(self, env: Optional[Dict[str, Any]] = None) -> float:
+    def run(self, env=None):
         """Execute the program body (inline shared stack+env via expr) and return result."""
         from .expr import eval_rpn
         return eval_rpn(self.body, env)
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         nm = self.name or "<anon>"
         return f"<Program {nm} len={len(self.body)}>"
 
-    def __eq__(self, other: object) -> bool:
+    def __eq__(self, other):
         if not isinstance(other, Program):
             return False
         return (self.name == other.name and self.body == other.body and
                 self.source == other.source)
 
 
-def make_prog(name: Optional[str], body: List[Any],
-              env: Optional[Dict[str, Any]] = None,
-              source: Optional[str] = None) -> Program:
+def make_prog(name, body, env=None, source=None):
     """Create a Program and optionally store it in env (first-class STO pattern)."""
     p = Program(body, name=name, source=source)
     if env is not None and name is not None:
@@ -98,7 +88,7 @@ def make_prog(name: Optional[str], body: List[Any],
     return p
 
 
-def run_prog(p_or_name: Any, env: Optional[Dict[str, Any]] = None) -> float:
+def run_prog(p_or_name, env=None):
     """Run a program given the object or its name (looked up in env)."""
     if isinstance(p_or_name, str):
         if env is None or p_or_name not in env:
@@ -114,7 +104,7 @@ def run_prog(p_or_name: Any, env: Optional[Dict[str, Any]] = None) -> float:
     return eval_rpn(p.body, env)
 
 
-def is_program(obj: Any) -> bool:
+def is_program(obj):
     """Duck-type + exact check used by expr shared executor and rpn dispatch."""
     if isinstance(obj, Program):
         return True
@@ -122,7 +112,7 @@ def is_program(obj: Any) -> bool:
             isinstance(getattr(obj, "body", None), (list, tuple)))
 
 
-def store_program(name: str, prog: Any, env: Dict[str, Any]) -> Any:
+def store_program(name, prog, env):
     """Store a program object under name in env (first-class STO helper matching test expectations)."""
     if env is not None:
         env[name] = prog
