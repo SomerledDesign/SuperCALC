@@ -204,7 +204,11 @@ class CalcREPL:
                         self.stack.append(val)
             self.last_result = val
             if isinstance(val, (int, float)):
-                self.env["lastx"] = float(val)
+                self.lastx = float(val)
+                self.env["lastx"] = self.lastx
+            # sync dedicated lastx from env in case this line did a core sto lastx (e.g. "99 sto lastx" via _eval path not visible sto handler)
+            if "lastx" in self.env and _is_number(self.env.get("lastx")):
+                self.lastx = float(self.env["lastx"])
             return val
         except Exception as e_rpn:
             if "empty stack at end" in str(e_rpn):

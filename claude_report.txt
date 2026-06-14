@@ -1,0 +1,9 @@
+[ralph] Phase 5 inc1 QA report (stub recreated for visibility after background process wipe)
+
+[Key excerpt from manual VS Code Claude review - full original was written via the complete-phase prompt and contained the structured review of the delivered CalcREPL inc1]
+
+### Final Verdict
+
+Phase 5 inc1 cannot advance in its current state. Two compounding MicroPython incompatibility blockers (typing imports in both solver.py from Phase 4 and new calc_repl.py), a silent data-corruption bug in the REPL routing (compact infix "2+3" pushes wrong data), and tests too weak to catch these issues all require fixes before re-handoff.
+
+NEEDS WORK - DO NOT ADVANCE
