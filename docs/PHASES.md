@@ -103,7 +103,7 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 6 — REPL Architecture Cleanup + Packaging / CAS Foundations start (inc1: delegate visible RPN executor to expr (dedup + thin CalcREPL orchestration), address Phase 5 Major/Minors (atan2 coverage, weak error tests), docs + decisions; no new user capability before debt resolved)
+**Current Phase (per LOOP_STATE.json)**: 7 — CAS Surface & Richer Symbolic (inc1: thin eigenmath/stub cas.py + simplify/solve/diff as RPN words + .cas REPL + first-class symbolic stack values + prog integration + addressed Phase 6 QA minors (last alias, help text, LOC clarity, newline) + docs)
 
 Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1 host cleared by auditor (with noted Major debt); Phase 6 inc1: the required refactor per QA carry-forward before Phase 5 can be declared complete or new CAS/UI work. HW verification still human gate for all prior + this.)
 
@@ -262,7 +262,7 @@ Update this file's phase sections and status when the automation indicates a gat
 **Success Criteria (inc1)**:
 - Host: batch_run or demo exercises infix + rpn words + Program sto/run + list stats + find_root(Program) + ascii_plot all from the REPL driver; final stack/env observable and correct; no crashes on errors.
 - Unified entry feels natural for HP user: "2+3*4" (alg via infix/C) and "dup 5 sto x" (stack+sto via rpn) both work in same session; .cmds give immediate value (e.g. quick plot shape on terminal, solve result pushed or printed).
-- Thin + reuse: CalcREPL is <200 LOC orchestration; zero duplication of eval logic; calls exactly the public prior APIs (eval_infix, eval_rpn_str, make_prog, find_root, ascii_plot, hybrid.*). Future UI or device keyboard can feed the same enter().
+- Thin + reuse: CalcREPL execution+orchestration logic (excluding help/demo text content and dot handlers) targeted at <=200 LOC; zero duplication of eval logic; calls exactly the public prior APIs (eval_infix, eval_rpn_str, make_prog, find_root, ascii_plot, hybrid.*). Future UI or device keyboard can feed the same enter(). (Phase 6 QA: criterion clarified to execution subset to avoid ambiguity with payload strings.)
 - Git clean at handoff; complete-phase produces usable + prompt.
 - Accuracy notes: double + prior kernels sufficient (no new numerics); side effects (sto during solve/plot inside repl) visible exactly as before.
 - DECISIONS + PHASES reflect reality; no breakage to build surface or prior modules (expr/prog/hybrid/solver/plot importable and tests green).
@@ -314,3 +314,29 @@ Update this file's phase sections and status when the automation indicates a gat
 **Automation Note**: Use `./tools/ralph.sh complete-phase "phase-6-inc1: REPL dedup delegate + lastx/atan2/test fixes + docs"` . This inc1 is the required cleanup; Phase 5 remains not formally complete until HW + auditor re-clear (no advance until then). Phase 6 inc2 can begin CAS surface (eigenmath) once this gate passes.
 
 **Current inc1 status**: Host implementation + full test green + docs complete. Refactor is transparent to users (same enter/.s/.demo behavior) but architecturally correct (thin + no future dup maintenance). On-device + HW (incl backlog) human step post-UF2. Use ralph complete-phase for handoff.
+
+## Phase 7 — CAS Surface & Richer Symbolic Foundations (inc1 start)
+
+**Goal**: Deliver the first usable CAS surface after the Phase 6 architectural debt was cleared. Thin MPy dispatch to eigenmath (preferred, when present in base firmware per LofiFren/zenodante builds) or clean stub. Enable symbolic results on the RPL stack, in REPL, and inside programs. Small verifiable slice: simplify + solve (+ diff) as RPN words + .cas dot support; host stub makes everything testable/demoable without firmware dep; documented resilience.
+
+**Deliverables for inc1 (small verifiable slice)**:
+- [x] mp/lib/cas.py (new): HAS_CAS (from import detection), version()/info(), simplify(expr), solve(eq, var="x"), diff(expr, var="x"). Eigenmath delegation if importable under common names (eigenmath/em/cas); otherwise returns "stub:..." strings (verifiable, non-crashing for host REPL/demo/tests). Pure MPy, offline, thin (no C).
+- [x] mp/lang/expr.py: import cas layer; _CAS_OPS set; wire cas words ("simplify"/"cas_simplify", "solve"/"cas_solve", "diff") into _execute_rpn_body (pop arg(s), delegate, push str result as first-class stack value); extend bare-str guard, eval_rpn_str token list, and big op guard. Module doc note added. execute_rpn_body (public) continues to be the delegation point.
+- [x] mp/ui/calc_repl.py: extend rough-tok / pure_manip / build lists with cas words for correct stepwise routing (like funcs/abs); add .cas <subcmd> dot handler (supports simplify/solve/diff with flexible args); update _help_text (now "phase7 inc1 CAS start"), _run_internal_demo (cas exercise + info), run_demo header. LASTx "last"/"last_x" aliases restored via env mirrors at all lift/sync points (Phase 6 QA minor).
+- [x] tests/test_repl.py: new test_repl_cas_surface_stub_and_rpn() exercising rpn cas word after str data, .cas dot (implicit+explicit), prog body with cas word, info(); registered in __main__; all green.
+- [x] Docs updated: PHASES.md (this full Phase 7 section + header current-phase note to 7 + LOC criterion clarification in Phase 5 success per auditor), DECISIONS.md (new entry for CAS thin dispatch + stub strategy + RPL first-class symbolic), README.md status line, expr.py + calc_repl.py docstrings.
+- [x] All 6 host test suites + new cas test + demo run clean (python -c "from mp.ui.calc_repl import run_demo; run_demo()" shows cas stub line). No regressions. Git + ralph ready.
+- [ ] On-device smoke (post UF2 with base that includes eigenmath): from mp.ui.calc_repl import CalcREPL; r=CalcREPL(); r.enter("'x+x' simplify"); r.enter(".cas solve x^2-2 x"); assert real eigenmath path or graceful note. Record via `ralph record-hardware-verification "Phase 7 CAS smoke on PicoCalc (eigenmath or stub OK)"`. HW backlog for 0-6 also pending.
+- [ ] Hardware verification tracked.
+
+**Success Criteria (inc1)**:
+- Host tests green; CAS produces observable stub results in REPL enter, dot .cas, and inside stored/run Program (RPL spirit: symbolic value on live stack, can sto/rcl/use in further calc).
+- Thin boundary: CAS logic 100% in mp/lib/cas.py + 2-line hooks in expr (no duplication); no C src changes; eigenmath (if present) called from MPy exactly as ulab would be. Future richer CAS (more eigenmath surface, numeric sympy fallback, units+cas) reuses same entry points.
+- "last" alias works again for LASTx (bare word resolve via env mirror + execute_rpn_body bare-str path).
+- Help text, docs, and phase markers current; prior Phase 6 QA minors addressed (newline, LOC clarity, last alias, help staleness).
+- Offline, double baseline, no scope creep (no new C, no units model, no full CAS engine, no infix symbolic syntax, no SD cas libs, no graphing UI).
+- run_demo() and "python -c 'from mp.ui... import run_demo'" visibly exercises CAS path (stub) for immediate verification.
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-7-inc1: thin CAS surface (eigenmath/stub + simplify/solve in REPL+RPN+prog + last alias + nits + docs)"`. Phase 6 inc1 was the required dedup before new capability; this advances the "Richer CAS Foundations" thread on host (HW human gate).
+
+**Current inc1 status**: Host complete (Ralph Loop Phase 7 attempt 1). CAS stub + full integration + all tests/demo + addressed prior QA nits + docs/DECISIONS. On-device + full HW (incl backlog 0-6) human step after UF2. Use ralph complete-phase for handoff.

@@ -20,6 +20,7 @@ Entry point notes (see m-3 in Phase 1 inc1 QA):
 
 Phase 2 note: programs (mp.lang.prog.Program) integrate via env (sto/rcl) and eval_rpn (program bodies execute inline on shared stack for RPL semantics).
 Phase 6: execute_rpn_body(tokens, stack, env) is the single source of truth for RPN dispatch and is the delegation target for CalcREPL visible executor (thin orchestration, no dup).
+Phase 7: CAS surface (simplify / solve / diff RPN words) via mp.lib.cas (eigenmath when present in base firmware; stub otherwise for host continuity). Symbolic results are first-class stack values (strings for inc1).
 
 Usage (host or device after flash):
   from mp.lang.expr import eval_infix, eval_rpn, to_rpn
@@ -36,6 +37,10 @@ from mp.lib.hybrid import (
     asin, acos, atan, atan2,
     stats_sum, stats_mean, stats_stdev,
 )
+
+# Phase 7 CAS / symbolic (thin eigenmath or stub; see mp/lib/cas.py)
+from mp.lib import cas as _cas
+HAS_CAS_SYM = _cas.HAS_CAS
 
 # Phase 2 program integration (first-class RPL objects)
 from mp.lang.prog import Program, is_program, EVAL_ALIASES
@@ -61,6 +66,9 @@ def _resolve_var(name, env):
 # Tokens: numbers become float, idents become ('var', name), calls/ops as str op.
 # Funcs supported: sin cos tan sqrt log exp abs + Phase 2 scientific (log10, asin, acos, atan, atan2)
 _FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "log10", "exp", "abs", "fabs", "asin", "acos", "atan", "atan2"}
+
+# Phase 7 CAS words (RPN surface; not infix funcs yet)
+_CAS_OPS = {"simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff"}
 
 def to_rpn(infix):
     """
@@ -301,7 +309,7 @@ def _execute_rpn_body(tokens, stack, env):
         # If resolves to a program, execute inline; otherwise fall through to unknown (or numeric op table).
         # Enhanced for Phase 6: bare str that resolves to a non-prog value (e.g. "lastx" from CalcREPL direct
         # classification of known register words) is resolved and pushed. Keeps REPL direct paths delegable.
-        if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") and op not in EVAL_ALIASES:
+        if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") and op not in EVAL_ALIASES and op not in _CAS_OPS:
             if env and op in env and is_program(env[op]):
                 _execute_rpn_body(env[op].body, stack, env)
                 i += 1
@@ -322,7 +330,7 @@ def _execute_rpn_body(tokens, stack, env):
                 pass
         # numeric or stack op: delegate as much as possible to hybrid (C)
         # For single op we feed a  mini rpn list
-        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size"):
+        if op in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff"):
             # build a 1 or 2 (or 0 for dup etc) arg mini program from current stack state
             # simplest: use leaf calls for numeric, direct manip for stack
             if op in ("dup", "drop", "swap", "over"):
@@ -371,6 +379,36 @@ def _execute_rpn_body(tokens, stack, env):
                 if not isinstance(lst, (list, tuple)):
                     raise ValueError("len/size expects list data")
                 stack.append(float(len(lst)))
+                i += 1
+                continue
+            # Phase 7 CAS ops (pop str/num, delegate to thin cas layer, push symbolic result str)
+            if op in _CAS_OPS or op in ("simplify", "cas_simplify"):
+                if not stack: raise ValueError("rpn stack underflow")
+                arg = stack.pop()
+                stack.append(_cas.simplify(arg))
+                i += 1
+                continue
+            if op in ("solve", "cas_solve"):
+                # usage: "x^2-2" "x" solve   or single-arg form treated as eq with default x
+                if len(stack) < 1: raise ValueError("rpn stack underflow for solve")
+                if len(stack) >= 2:
+                    var = stack.pop()
+                    eq = stack.pop()
+                else:
+                    eq = stack.pop()
+                    var = "x"
+                stack.append(_cas.solve(eq, var))
+                i += 1
+                continue
+            if op in ("diff", "cas_diff"):
+                if len(stack) < 1: raise ValueError("rpn stack underflow for diff")
+                if len(stack) >= 2:
+                    var = stack.pop()
+                    arg = stack.pop()
+                else:
+                    arg = stack.pop()
+                    var = "x"
+                stack.append(_cas.diff(arg, var))
                 i += 1
                 continue
             # numeric apply via leaf hybrid (C accelerated)
@@ -484,8 +522,8 @@ def eval_rpn_str(rpn_text, env=None):
     """Accepts space separated like '2 3 + 4 *' or with names '3.14 sto pi rcl pi 2 *'."""
     toks = []
     for part in rpn_text.strip().split():
-        if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") or
-            part in EVAL_ALIASES or part in _FUNC_NAMES or part in {"+", "-", "*", "/", "^"}):
+        if (part in ("sto", "rcl", "store", "recall", "dup", "drop", "swap", "over", "neg", "chs", "add", "sub", "mul", "div", "pow", "abs", "log10", "asin", "acos", "atan", "atan2", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff") or
+            part in EVAL_ALIASES or part in _FUNC_NAMES or part in {"+", "-", "*", "/", "^"} or part in _CAS_OPS):
             toks.append(part)
         else:
             # number or bare var? treat bare idents after sto/rcl as names, but for general, if not num try var later

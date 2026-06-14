@@ -1,5 +1,5 @@
 """
-SuperCalc.OG Phase 5 inc1 — CalcREPL driver (REPL + UI integration foundation)
+SuperCalc.OG Phase 7 inc1 — CalcREPL driver (REPL + UI integration + CAS surface)
 
 Unified calculator REPL experience on top of the hybrid engine:
 - enter(line): tries infix algebraic first (friendly default, hits C rpn_eval hot path via eval_infix),
@@ -23,6 +23,7 @@ Re-uses exactly:
   mp.lib.solver.find_root
   mp.plot.{ascii_plot, cartesian_sample}
   mp.lib.hybrid (indirectly via above + version)
+  mp.lib.cas (Phase 7: simplify/solve/diff via eigenmath or stub)
 execute_rpn_body is the single dispatch source; CalcREPL passes its live self.stack for visible stepwise + RPL inline run semantics.
 
 Host: pure Python, works in any REPL.
@@ -55,6 +56,8 @@ from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH, execute
 from mp.lang.prog import make_prog, is_program
 from mp.lib.solver import find_root
 from mp.plot import ascii_plot, cartesian_sample
+# Phase 7 CAS (thin; eigenmath when in firmware else stub; used for .cas + direct words)
+from mp.lib.cas import HAS_CAS as HAS_CAS_SYM, simplify as _cas_simplify, solve as _cas_solve, diff as _cas_diff, info as _cas_info
 
 # Unary scientific functions for direct visible RPN apply (stepwise like "1.57 sin" after prior result).
 # (Binary ops like + typically entered in one line; 1-line rpn text paths use full eval_rpn which supports all.)
@@ -143,11 +146,13 @@ class CalcREPL:
         # "N sto lastx" or "lastx" query itself does not clobber a just-set register with pre-line top.
         is_sto_line = any(p in ("sto", "store", "->") for p in parts)
         is_rcl_line = any(p in ("rcl", "recall") for p in parts)
-        is_lastx_line = any(p.lower() in ("lastx", "last_x") for p in parts) if parts else False
+        is_lastx_line = any(p.lower() in ("lastx", "last_x", "last") for p in parts) if parts else False
         if not (is_sto_line or is_rcl_line or is_lastx_line):
             if self.stack and _is_number(self.stack[-1]):
                 self.lastx = float(self.stack[-1])
-                self.env["lastx"] = self.lastx  # mirror so infix "lastx+1", rcl lastx, and prog sidefx see it
+                self.env["lastx"] = self.lastx
+                self.env["last"] = self.lastx
+                self.env["last_x"] = self.lastx  # aliases for bare-word resolve (addresses Phase 6 QA minor)
         has_alg_cue = any(c in line for c in "()^") or ("(" in line and ")" in line) or any(op + "(" in line for op in ("sin","cos","tan","sqrt","log"))
         has_infix_op = any(op in line for op in ("+", "-", "*", "/", "^"))
         if (has_alg_cue or has_infix_op) and not has_prog_name:
@@ -159,6 +164,8 @@ class CalcREPL:
                 if isinstance(val, (int, float)):
                     self.lastx = float(val)
                     self.env["lastx"] = self.lastx
+                    self.env["last"] = self.lastx
+                    self.env["last_x"] = self.lastx
                 return val
             except Exception:
                 pass  # fallthrough to rpn (e.g. real RPN containing operators as words)
@@ -169,7 +176,7 @@ class CalcREPL:
             if part in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over",
                         "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev",
                         "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^",
-                        "abs", "lastx", "LASTX", "last_x") or part in _FUNC_NAMES:
+                        "abs", "lastx", "LASTX", "last_x", "last", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff") or part in _FUNC_NAMES:
                 toks.append(part)
             else:
                 try:
@@ -179,7 +186,7 @@ class CalcREPL:
 
         has_floats = any(isinstance(t, (int, float)) for t in toks)
         pure_manip = (not has_floats) and all(
-            isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x")
+            isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x","last","simplify","cas_simplify","solve","cas_solve","diff","cas_diff")
             for t in toks if isinstance(t, str)
         )
         is_data_only = all(_is_number(t) or (isinstance(t, (list, tuple)) and not _is_var_token(t)) for t in toks) if toks else False
@@ -190,6 +197,8 @@ class CalcREPL:
                 if isinstance(self.last_result, (int, float)):
                     self.lastx = float(self.last_result)
                     self.env["lastx"] = self.lastx
+                    self.env["last"] = self.lastx
+                    self.env["last_x"] = self.lastx
                 return self.last_result
             except Exception:
                 pass
@@ -217,6 +226,8 @@ class CalcREPL:
             if isinstance(val, (int, float)):
                 self.lastx = float(val)
                 self.env["lastx"] = self.lastx
+                self.env["last"] = self.lastx
+                self.env["last_x"] = self.lastx
             # sync dedicated lastx from env in case this line did a core sto lastx (e.g. "99 sto lastx" via _eval path not visible sto handler)
             if "lastx" in self.env and _is_number(self.env.get("lastx")):
                 self.lastx = float(self.env["lastx"])
@@ -234,6 +245,8 @@ class CalcREPL:
                 if isinstance(val, (int, float)):
                     self.lastx = float(val)
                     self.env["lastx"] = self.lastx
+                    self.env["last"] = self.lastx
+                    self.env["last_x"] = self.lastx
                 return val
             except Exception as e2:
                 raise ValueError(f"enter failed (tried rpn then infix): {e_rpn} / {e2}") from e_rpn
@@ -268,6 +281,8 @@ class CalcREPL:
             self.lastx = float(self.env["lastx"])
         if _is_number(self.lastx):
             self.env["lastx"] = self.lastx
+            self.env["last"] = self.lastx
+            self.env["last_x"] = self.lastx  # publish aliases so bare "last" resolves via execute_rpn_body bare-str path (Phase 6 QA minor addressed)
 
         # Delegate to single source of truth (expr). Body executes *on our live stack* for authentic RPL inline semantics
         # (e.g. "run" of prog or bare prog name now mutates visible stack directly instead of fresh+append-top).
@@ -276,6 +291,8 @@ class CalcREPL:
         # Post-sync LASTx dedicated from any sto lastx (or lastx-producing ops) performed by body.
         if "lastx" in self.env and _is_number(self.env.get("lastx")):
             self.lastx = float(self.env["lastx"])
+            self.env["last"] = self.lastx
+            self.env["last_x"] = self.lastx
 
     def _build_smart_tokens(self, line):
         """Tokenize rpn text, turning [ ... ] into embedded list tokens (for stats + prog bodies)."""
@@ -297,7 +314,7 @@ class CalcREPL:
                 toks.append(lst)
                 continue
             pc = p.strip(",").strip("'\"")
-            if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^", "abs", "lastx", "LASTX", "last_x") or pc in _FUNC_NAMES:
+            if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^", "abs", "lastx", "LASTX", "last_x", "last", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff") or pc in _FUNC_NAMES:
                 toks.append(pc)
             else:
                 try: toks.append(float(pc))
@@ -387,6 +404,8 @@ class CalcREPL:
                 self.last_result = root
                 if isinstance(root, (int, float)):
                     self.env["lastx"] = float(root)
+                    self.env["last"] = float(root)
+                    self.env["last_x"] = float(root)
                 print(f"root ~ {self._fmt(root)}  (pushed to stack; env may have side-effects)")
                 return root
             except Exception as e:
@@ -407,18 +426,55 @@ class CalcREPL:
             p = make_prog(name, body, env=self.env)
             # stored {p}  (debug removed for clean demo output)
             return p
+        if cmd == ".cas":
+            # Phase 7: thin CAS surface via dot (e.g. .cas simplify <expr> or bare .cas <expr> for implicit simplify)
+            parts = [p for p in arg.split()]
+            sub = (parts[0].lower() if parts else "")
+            rest = " ".join(parts[1:]) if len(parts) > 1 else ""
+            try:
+                if sub in ("simplify", "cas_simplify"):
+                    expr = rest or arg
+                    res = _cas_simplify(expr)
+                    self.stack.append(res)
+                    print(f"cas: {res}")
+                    return res
+                if sub in ("solve", "cas_solve"):
+                    toks = (rest or "").split() or ([arg] if arg else [])
+                    eq = toks[0] if toks else arg
+                    var = toks[1] if len(toks) > 1 else "x"
+                    res = _cas_solve(eq, var)
+                    self.stack.append(res)
+                    print(f"cas: {res}")
+                    return res
+                if sub in ("diff", "cas_diff"):
+                    toks = (rest or "").split() or ([arg] if arg else [])
+                    arg0 = toks[0] if toks else arg
+                    v = toks[1] if len(toks) > 1 else "x"
+                    res = _cas_diff(arg0, v)
+                    self.stack.append(res)
+                    print(f"cas: {res}")
+                    return res
+                # default: implicit simplify for ".cas <expr>" (no recognized verb as first word)
+                res = _cas_simplify(arg)
+                self.stack.append(res)
+                print(f"cas: {res}")
+                return res
+            except Exception as e:
+                print(f"cas error: {e}")
+            return None
         print(f"unknown cmd {cmd}  (try .help)")
         return None
 
     def _help_text(self):
         return (
-            "SuperCalc.OG REPL (phase5 inc1)\n"
+            "SuperCalc.OG REPL (phase7 inc1 CAS start)\n"
             "  algebraic: 2+3*sin(pi/2)   |   2^3 + sqrt(9)\n"
             "  rpn/stack:  2 3 + dup *    |   rcl x 2 *   |   dup drop swap over\n"
             "  sto/rcl:    5 sto x        |   rcl x\n"
-            "  lastx/abs:  2+3  lastx *    |   -4 abs     (HP LASTx = prior X before cmd; abs on stack)\n"
+            "  lastx/abs:  2+3  lastx *    |   -4 abs     (HP LASTx = prior X before cmd; abs on stack; last/last_x aliases too)\n"
             "  progs:      .prog dbl 2 *  then  3 rcl dbl run\n"
-            "  cmds: .s .stack .v .vars .plot <f> .solve <f> <a> <b> .prog <n> <body...> .demo .clear .help\n"
+            "  cas:        'x+x' simplify |   .cas simplify x^2+2*x+1\n"
+            "  cmds: .s .stack .v .vars .plot <f> .solve <f> <a> <b> .prog <n> <body...> .cas ... .demo .clear .help\n"
             "  solve/plot observe 'x' and sto side-effects (RPL)\n"
         )
 
@@ -479,6 +535,17 @@ class CalcREPL:
         # 6. hybrid visibility
         out.append("hybrid C math: " + str(HAS_C_MATH))
 
+        # 7. CAS (Phase 7 inc1): exercises thin cas layer (eigenmath or stub on host)
+        # Use stack-push + bare cas word (matches how lists/stats are exercised in demo; one-line quoted-str syntax not in scope)
+        self.stack.append("x+x")
+        cres = self.enter("simplify")
+        out.append("cas simplify stub: " + str(cres)[:40])
+        try:
+            cinfo = _cas_info()
+            out.append("cas info has=" + str(cinfo.get("has_cas")))
+        except Exception:
+            pass
+
         summary = "DEMO: " + " | ".join(out)
         print(summary)
         return summary
@@ -488,9 +555,9 @@ class CalcREPL:
 
 
 def run_demo():
-    """Run the built-in demo tour (exercises expr + prog + solver + stats + plot)."""
+    """Run the built-in demo tour (exercises expr + prog + solver + stats + plot + cas)."""
     r = CalcREPL()
-    print("=== SuperCalc.OG Phase 5 REPL demo ===")
+    print("=== SuperCalc.OG Phase 7 REPL demo (CAS inc1) ===")
     r._run_internal_demo()
     print("=== end demo (stack now has results; .s to inspect) ===")
     print(r.show_stack("final demo stack"))

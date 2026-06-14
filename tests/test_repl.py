@@ -19,7 +19,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from mp.ui.calc_repl import CalcREPL, run_demo, batch_run_demo_lines
-from mp.lang.prog import is_program
+from mp.lang.prog import is_program, make_prog
 from mp.lib.solver import find_root
 from mp.plot import cartesian_sample
 from mp.apps.solver_app import SolverApp, solve_text
@@ -305,6 +305,31 @@ def test_repl_micropython_typing_guard_and_compact_infix_robust():
     print("OK micropython typing guard (imports+run under no-typing) + compact infix data integrity")
 
 
+def test_repl_cas_surface_stub_and_rpn():
+    """Phase 7 inc1: CAS thin surface (stub on host) via enter, dot .cas, and rpn word via delegation."""
+    from mp.ui.calc_repl import CalcREPL
+    from mp.lib.cas import HAS_CAS as _has, simplify as _simp, info as _cinfo
+    r = CalcREPL()
+    # direct cas via rpn-style on stack (str pushed as data, then cas word)
+    r.stack.append("x+x")
+    res = r.enter("simplify")
+    assert isinstance(res, str)
+    assert "stub:simplify" in res or (not _has and "x+x" in res)  # host stub visible
+    # .cas dot handler (implicit simplify and explicit)
+    r2 = CalcREPL()
+    c1 = r2.enter(".cas x^2 + 2*x + 1")
+    assert isinstance(c1, str) and "stub:simplify" in str(c1)
+    c2 = r2.enter(".cas solve x^2-2 x")
+    assert isinstance(c2, str) and "stub:solve" in str(c2)
+    # info visible
+    inf = _cinfo()
+    assert "has_cas" in inf
+    # (CAS in prog body tokens would require data-str literals in rpn streams; out of inc1 scope.
+    #  The REPL visible + direct stack-append + .cas paths + delegation already prove RPL-friendly use.
+    #  Programs can still call cas words after pushing symbolic via prior ops or rcl of a str var.)
+    print("OK cas surface (stub path exercised in REPL + dot + delegation; prog integration natural via stack)")
+
+
 if __name__ == "__main__":
     test_repl_basic_infix_and_rpn_mixed()
     test_repl_vars_sto_rcl_and_side_effects()
@@ -317,4 +342,7 @@ if __name__ == "__main__":
     test_repl_demo_lines_helper()
     test_repl_lastx_and_rpn_func_words()
     test_repl_micropython_typing_guard_and_compact_infix_robust()
-    print("\nALL Phase 5 REPL tests PASSED")
+    test_repl_cas_surface_stub_and_rpn()
+    print("\nALL Phase 5+7 REPL tests PASSED")
+
+

@@ -434,3 +434,37 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Rationale**: Per PGR "Read the previous claude_report.txt now. Fix every issue the auditor raised before writing new code. Address all blockers and majors first." The "guarded" approach was attempted earlier but the auditor still flagged "typing imports in solver.py from Phase 4 and new calc_repl.py" (transitive sources). Full removal from the .py files that ship to device is the cleanest, zero-risk fix for stock MPy firmware (no future stmt, no try:typing ever). The strengthened test (already scaffolded) + explicit scalar asserts now catch both the import blocker and the "2+3 pushes wrong data" silent corruption. Matches "Documentation is part of the work", "Small verifiable slices", "tests + host first".
 **Date**: 2026-06 Phase 5 fix2 / retry 2
 **Commit**: phase-5-fix2: fix MPy typing (full purge of future/typing/annots in prog/plot/solver_app) + compact infix scalar routing + weak test coverage + docs update; all B/M addressed before re-handoff
+
+## 2026-06 (Phase 7 inc1 — CAS Surface start + Phase 6 QA minor closure)
+
+### Thin CAS integration via eigenmath (or documented stub)
+**Decision**: Introduced `mp/lib/cas.py` as the dedicated thin layer for symbolic/CAS. At import time it probes for eigenmath under common module names ("eigenmath", "em", "cas") that community bases (LofiFren/zenodante) may provide; sets HAS_CAS + backend info accordingly. Exposes simplify/ solve / diff that delegate when present or return "stub:..." forms (immediately useful for REPL visibility, tests, and RPL programs that embed cas words). Wired as RPN ops in expr (so " 'x+x' simplify ", prog bodies, etc work) and .cas dot in REPL. No changes to C sources or hybrid (CAS is MPy-level leverage of base, per PGR "leverage ... eigenmath").
+
+**Rationale**:
+- Matches overall goals (symbolic/CAS) and "Phase 6+ Richer CAS" after the dedup gate. Small slice: only surface + stub, no new parser syntax, no full engine.
+- Thin + offline: zero network, works on any host for development; on device the same code gets real eigenmath if the UF2 includes it (no conditional compile needed).
+- RPL spirit: cas results are ordinary stack values (str for inc1) — can be sto'd, passed to progs, inspected with .s, used in further rpn/infix (e.g. numeric eval of a simplified form).
+- Addresses auditor note that Phase 6 inc2 could begin CAS surface on host once cleared.
+- Recorded as Phase 7 per LOOP_STATE advance.
+
+**Date**: 2026-06 Phase 7 inc1 (attempt 1)
+
+### Phase 6 QA minors addressed as part of next increment
+**Decision**:
+- Trailing newline added to mp/lang/expr.py (was missing across phases; nit fixed).
+- _help_text() updated from stale "phase5 inc1" to "phase7 inc1 CAS start" (user-visible).
+- PHASES.md LOC criterion clarified: "execution+orchestration logic (excluding help/demo text content...)" so target is testable.
+- "last" / "last_x" LASTx aliases restored by publishing them alongside "lastx" at every lift/mirror/sync point in CalcREPL (env mirrors now include all three). Bare-word resolve via the Phase 6 execute_rpn_body bare-str enhancement now sees them.
+- All changes done before the phase-7-inc1 handoff (per "address every issue").
+
+**Rationale**: PGR + ClaudeQA require addressing Blockers/Majors (none here) and handling Minors/Nits by fix or explicit record before re-handoff. Doing the easy hygiene in the CAS inc keeps momentum while satisfying the "conscience" loop contract. No behavior change for primary "lastx" users.
+
+**Date**: 2026-06 Phase 7 inc1 (concurrent with CAS surface)
+
+### Current phase discipline + docs for Phase 7
+**Decision**: LOOP_STATE current_phase=7; PHASES.md extended with full Phase 7 section (deliverables, success, automation note, HW note); README status refreshed; branch + ralph complete-phase used per PGR workflow. No future-phase scope added.
+
+**Rationale**: Strict adherence to "only work on the declared current phase", "Documentation is part of the work", "update PHASES/DECISIONS with every increment".
+
+**Date**: 2026-06 Phase 7 inc1
+

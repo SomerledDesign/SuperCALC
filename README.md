@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 5 inc1 — REPL + UI foundations (CalcREPL unified infix/rpn driver + mp/ui/ skeleton + batch/demo harness exercising full prior: expr/prog/solver/stats(C)/plot(ascii); host tests green). Ralph Loop active (current_phase=5). Hardware smoke backlog (0-4) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
+**Status**: Phase 7 inc1 — CAS Surface start (thin mp/lib/cas.py eigenmath-or-stub + simplify/solve RPN + .cas in REPL + symbolic first-class on stack + prog; last alias restored + Phase6 QA nits; full demo+tests green). Ralph Loop active (current_phase=7). HW smoke backlog (0-6) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
 
 ## Vision
 
