@@ -269,6 +269,24 @@ def test_repl_micropython_typing_guard_and_compact_infix_robust():
         v = r.enter("sin(pi/2)+1")
         assert approx(v, 2.0)
         assert isinstance(r.stack[-1], (int, float))
+        # bare predefs and bare user var (these hit the rpn visible path / data classification; must resolve to scalar not var-token or list(['var',..]))
+        v = r.enter("pi")
+        assert approx(v, 3.1415926535, 1e-9)
+        assert isinstance(r.stack[-1], (int, float)) and not isinstance(r.stack[-1], (list, tuple))
+        v = r.enter("e")
+        assert approx(v, 2.718281828, 1e-9)
+        assert isinstance(r.stack[-1], (int, float)) and not isinstance(r.stack[-1], (list, tuple))
+        # bare var after sto (no alg op chars, so no early infix cue; must not push var marker)
+        r.enter("42 sto b")
+        v = r.enter("b")
+        assert approx(v, 42.0)
+        assert isinstance(r.stack[-1], (int, float)) and not isinstance(r.stack[-1], (list, tuple))
+        # undef compact with + should error cleanly (no silent var-token data corruption on stack)
+        try:
+            r.enter("nope+1")
+            assert False, "expected error for undef in compact"
+        except Exception as e:
+            assert "undefined" in str(e).lower() or "enter failed" in str(e).lower()
         print("  (guard+compact) multiple no-space infix alg + scalar type asserts: OK")
     finally:
         _bi.__import__ = _orig_imp

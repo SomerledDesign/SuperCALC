@@ -297,6 +297,23 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 - Programs can return or consume lists (future stats progs natural).
 - Thin: the "list" is a python list object on the MPy stack (no C list rep yet; C stats just iterate what MPy passes).
 - Prepares for richer objects (units, matrices via ulab) while staying verifiable for inc1.
+
+**Date**: 2026-06 Phase 4 inc1
+
+## 2026-06 (Phase 5 inc1 — REPL + UI foundations + fix retries)
+
+### Phase 5 fix3 (retry 3/3 after QA rejection): MPy typing purge complete + REPL routing data corruption fixed + tests hardened
+**Decision**: Before any other work or re-handoff, fixed the exact Blockers/Majors called out in the auditor report for the Phase 5 inc1 (and fix2) handoff: (a) MicroPython incompatibility from typing: purged the last bare type annotations (the `: str` on to_rpn/eval_infix/eval_rpn_str) from mp/lang/expr.py (the module transitively imported by solver.py, calc_repl.py, plot, apps, prog etc); replaced verbose "no future..." comments in solver.py + calc_repl.py with short "MicroPython-safe" notes (the purged files prog/plot/solver_app already clean from fix2; now whole runtime graph has zero runtime-evaluated annots or typing imports). (b) Silent data-corruption in REPL routing for compact infix "2+3" (and bare "pi", "a+0.5", bare user var): the root cause was in CalcREPL: the rough-toks path for bare idents (and glued no-space with ops that fell through) produced var-marker tuples; the is_data_only check + early "all nums or tuple" data branch inside _execute_visible_rpn_words blindly treated any 1-elem tuple (including ('var', name)) as "list data" and did list(tok) push of e.g. ['var', 'pi'] instead of resolving the value (scalar or error). Fixed by adding _is_var_token helper + excluding var markers from both the data-if and is_data_only (list data for stats like "1 2 3" and pre-pushed lists still work exactly; var cases now always hit the name-resolve append(val) path or raise cleanly). (c) Weak tests: expanded the no-typing-guard test (which reimports under __import__ patch + exercises the exact paths) with bare predef ("pi", "e"), bare post-sto user var, undef-compact error case, + explicit scalar + "not list/tuple var-form" asserts on every value entry. All changes per PGR "Address all blockers and majors first" "before writing new code"; no scope added beyond Phase 5; host tests + demo + blocked-sim + ralph status all green post-edit.
+
+**Rationale**:
+- Directly satisfies the auditor's "cannot advance... two compounding MPy incompatibility blockers (typing imports in both solver.py ... and new calc_repl.py), a silent data-corruption bug in the REPL routing (compact infix "2+3" pushes wrong data), and tests too weak to catch these issues".
+- Purging annots from expr (not just the leafs) ensures no future similar complaints even if static checkers or stricter MPy firmware look at def lines.
+- The var-token vs data-list distinction is the precise invariant that must be maintained for RPL "value entry always yields scalars or structured data (lists/progs), never parser tokens".
+- Hardened test is now the canary that will catch any regression in enter() routing or token handling.
+- Matches "Small, verifiable slices", "Tests + docs exist", "Accuracy first", "RPL spirit", and "Fix every issue... before the next handoff".
+- No change to C, no new features, no hybrid boundary shift.
+
+**Date**: 2026-06 Phase 5 fix3 / retry 3
 - Recorded as explicit data model step for Phase 4 (HPs had rich objects; we start with list + prog + num).
 
 **Date**: 2026-06 Phase 4 inc1 (attempt 1)

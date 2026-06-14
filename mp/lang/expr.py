@@ -61,7 +61,7 @@ def _resolve_var(name, env):
 # Funcs supported: sin cos tan sqrt log exp abs + Phase 2 scientific (log10, asin, acos, atan, atan2)
 _FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "log10", "exp", "abs", "fabs", "asin", "acos", "atan", "atan2"}
 
-def to_rpn(infix: str):
+def to_rpn(infix):
     """
     Return list of RPN tokens: float | str(op) | ('var', name)
     Very small, no full lexer — sufficient for Phase 1 inc1 verifiable slice.
@@ -186,7 +186,7 @@ def _rpn_to_numeric_tokens(rpn_with_vars, env):
             res.append(t)
     return res
 
-def eval_infix(infix: str, env=None):
+def eval_infix(infix, env=None):
     """Evaluate infix algebraic expression. Supports vars from env or predefs (pi,e)."""
     rpn = to_rpn(infix)
     num_tokens = _rpn_to_numeric_tokens(rpn, env)
@@ -472,7 +472,7 @@ def eval_rpn(tokens, env=None):
     return stack[-1]
 
 # convenience
-def eval_rpn_str(rpn_text: str, env=None):
+def eval_rpn_str(rpn_text, env=None):
     """Accepts space separated like '2 3 + 4 *' or with names '3.14 sto pi rcl pi 2 *'."""
     toks = []
     for part in rpn_text.strip().split():

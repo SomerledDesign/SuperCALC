@@ -43,11 +43,9 @@ Public:
 import os
 import sys
 
-# No direct typing imports or __future__ annotations here (and none in the entire
-# import graph: prog/plot/solver_app fully purged of future+typing+annot sigs in fix2).
-# Importing calc_repl (and solver) now succeeds with zero typing module present.
-# This fixes the Phase 5 QA reported MicroPython incompatibility Blocker.
-# Ensure project root on path for standalone runs (matches solver.py / test_* pattern)
+# MicroPython-safe: no typing imports / __future__ annotations anywhere in import graph
+# (expr/prog/etc purged of runtime annots). Phase 5 QA MPy blocker fully addressed.
+# Project root on path for standalone (matches other mp/ modules + tests).
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -67,6 +65,11 @@ _FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "log10", "exp", "abs", "fabs"
 
 def _is_number(tok):
     return isinstance(tok, (int, float))
+
+
+def _is_var_token(tok):
+    """Var marker from rough/ smart tokenizers: ('var', name) or equiv. Must never be mis-treated as list data."""
+    return isinstance(tok, (list, tuple)) and len(tok) == 2 and tok[0] == "var" and isinstance(tok[1], str)
 
 
 class CalcREPL:
@@ -178,7 +181,7 @@ class CalcREPL:
             isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x")
             for t in toks if isinstance(t, str)
         )
-        is_data_only = all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks) if toks else False
+        is_data_only = all(_is_number(t) or (isinstance(t, (list, tuple)) and not _is_var_token(t)) for t in toks) if toks else False
         if pure_manip or is_data_only or not has_floats:
             try:
                 self._execute_visible_rpn_words(toks)
@@ -237,13 +240,14 @@ class CalcREPL:
     def _execute_visible_rpn_words(self, toks):
         """Direct manip on self.stack + env for pure stack words / sto/rcl / len/stats / neg / EVAL run."""
         # nums-only or data list: collect/push as single list entry *only if 2+ nums* (so "1 2 3 4" -> list for stats; bare "42" or "7" stays scalar)
-        if toks and all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks):
+        # Exclude var marker tuples (('var', name)) -- they must resolve via name path, not become data lists (was source of silent corruption for bare "pi"/"a+0.5" compact etc).
+        if toks and all(_is_number(t) or (isinstance(t, (list, tuple)) and not _is_var_token(t)) for t in toks):
             nums = [float(t) for t in toks if _is_number(t)]
             if len(nums) >= 2:
                 self.stack.append(nums)
             elif len(nums) == 1:
                 self.stack.append(nums[0])
-            elif len(toks) == 1 and isinstance(toks[0], (list, tuple)):
+            elif len(toks) == 1 and isinstance(toks[0], (list, tuple)) and not _is_var_token(toks[0]):
                 self.stack.append(list(toks[0]))
             return
         i = 0

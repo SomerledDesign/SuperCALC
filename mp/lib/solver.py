@@ -27,11 +27,8 @@ Thin: solver owns iteration + convergence; expr/hybrid own eval.
 import os
 import sys
 
-# No 'from __future__ annotations' and no typing imports (direct or guarded) anywhere
-# in the import graph for this module or its callers (calc_repl, apps, ui). 
-# prog.py + plot.py + solver_app.py had their future+typing blocks and all :annot sigs
-# fully stripped (runtime names removed) to guarantee import on plain MPy firmware.
-# Addresses the Phase 5 QA Blocker for solver.py (and callers).
+# MicroPython-safe: no typing imports or __future__ annotations in this module or its
+# import graph (expr, prog, etc). All prior Phase 5 blockers addressed (see handoffs).
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
