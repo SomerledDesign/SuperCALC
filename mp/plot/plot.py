@@ -27,13 +27,23 @@ for simple line renders later). ymin/ymax auto or supplied in future viewport wr
 Error handling: individual sample errors -> y=nan (keeps plot continuous for later render).
 """
 from __future__ import annotations
-from typing import Any, List, Tuple, Optional, Dict, Union
+try:
+    from typing import Any, List, Tuple, Optional, Dict, Union
+    Point = Tuple[float, float]
+except ImportError:
+    # MicroPython compatibility (no typing module). from __future__ annotations
+    # (above) makes all : annotations and -> returns unevaluated (string form),
+    # so runtime names for types are not required except for this top-level alias.
+    # Dummies allow the alias line and any annotation strings that reference them.
+    # Fixes transitive import of calc_repl (which does "from mp.plot import ...")
+    # and solver (pulls prog) on device. Addresses Phase 5 QA blocker.
+    Any = List = Tuple = Optional = Dict = Union = object
+    Point = tuple
+
 import math as _py_m
 
 from mp.lang.expr import to_rpn, eval_rpn
 from mp.lang.prog import is_program
-
-Point = Tuple[float, float]
 
 def linspace(xmin: float, xmax: float, n: int = 320) -> List[float]:
     """Return n evenly spaced floats from xmin to xmax (inclusive).

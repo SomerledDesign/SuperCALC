@@ -28,7 +28,15 @@ ops and will execute a Program found on the top of stack (or resolved via rcl) u
 shared body executor. Duck-types on having a .body attribute + exact isinstance.
 """
 from __future__ import annotations
-from typing import Any, List, Optional, Dict
+try:
+    from typing import Any, List, Optional, Dict
+except ImportError:
+    # MicroPython compatibility (no typing module on stock firmware / many ports).
+    # The from __future__ annotations above ensures that annotation expressions
+    # (e.g. body: List[Any]) are stored as strings and never evaluated at runtime,
+    # so the names are not required after this guard. This fixes the Phase 5
+    # blocker for importing solver.py / calc_repl.py (and their deps) on device.
+    Any = List = Optional = Dict = object
 
 # expr imports these at load (see mp/lang/expr.py). We do not import expr at top level
 # to keep load order clean; inside run() we import locally for the top-level driver.
