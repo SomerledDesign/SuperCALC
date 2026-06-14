@@ -103,7 +103,7 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 7 — CAS Surface & Richer Symbolic (inc1: thin eigenmath/stub cas.py + simplify/solve/diff as RPN words + .cas REPL + first-class symbolic stack values + prog integration + addressed Phase 6 QA minors (last alias, help text, LOC clarity, newline) + docs)
+**Current Phase (per LOOP_STATE.json)**: 7 — CAS Surface & Richer Symbolic (inc1: thin ... + docs; inc2 in progress: dispatch fix + Symbolic(str) wrapper + help note for solve RPN convention + RPN word test cov for diff/solve + nits closed per auditor + docs)
 
 Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1 host cleared by auditor (with noted Major debt); Phase 6 inc1: the required refactor per QA carry-forward before Phase 5 can be declared complete or new CAS/UI work. HW verification still human gate for all prior + this.)
 
@@ -340,3 +340,23 @@ Update this file's phase sections and status when the automation indicates a gat
 **Automation Note**: Use `./tools/ralph.sh complete-phase "phase-7-inc1: thin CAS surface (eigenmath/stub + simplify/solve in REPL+RPN+prog + last alias + nits + docs)"`. Phase 6 inc1 was the required dedup before new capability; this advances the "Richer CAS Foundations" thread on host (HW human gate).
 
 **Current inc1 status**: Host complete (Ralph Loop Phase 7 attempt 1). CAS stub + full integration + all tests/demo + addressed prior QA nits + docs/DECISIONS. On-device + full HW (incl backlog 0-6) human step after UF2. Use ralph complete-phase for handoff.
+
+**inc2 (current work)**: Small verifiable follow-on per "CLEARED TO CONTINUE" + auditor recommendations (no phase advance). Deliverables:
+- [x] Fixed latent CAS RPN dispatch bug in expr.py (the _CAS_OPS if + continue was swallowing solve/diff words and calling simplify on them; now explicit per-family ifs with continue). Added precise comments on 2-arg solve/diff stack layout ("eq var solve").
+- [x] mp/lib/cas.py: introduced Symbolic(str) subclass wrapper returned from simplify/solve/diff (stub + delegation paths); added one-line docstring to diff(); updated module doc for inc2 scope. __all__ exports Symbolic. (First step toward richer symbolic type per inc1 auditor risk note.)
+- [x] tests/test_repl.py: extended test_repl_cas_surface_stub_and_rpn() (now inc2) to cover diff via direct RPN ("x^2" diff), solve 2-arg RPN + 1-arg, .cas diff, explicit Symbolic/str checks + issubclass; all green.
+- [x] mp/ui/calc_repl.py: _help_text updated to "phase7 inc2", cas: help line now shows solve example + explicit RPN note on eq/var order for bare-word solve (addresses auditor "must-fix before eigenmath live"). Demo header + internal CAS comment refreshed to inc2.
+- [x] Docs: PHASES current marker + this inc2 para; DECISIONS.md new section for dispatch hygiene + Symbolic decision + help+test closure of prior QA items. No scope creep.
+- [x] All 6+1 tests + demo run clean; "python -c 'from mp.ui.calc_repl import run_demo'" exercises updated CAS (now shows Symbolic-wrapped stubs).
+- [ ] On-device: post-UF2 smoke of RPN " 'x^2' diff ", 2-arg solve via stack, isinstance of result, .cas help visible (eigen or stub). Use ralph record-hardware-verification when human confirms.
+- [ ] HW verification (backlog + this).
+
+**inc2 Success Criteria**:
+- Host: solve/diff/simplify all work correctly via direct rpn word after stack push (no mis-dispatch); 2-arg solve respects documented eq-then-var layout; tests cover it.
+- Symbolic wrapper is transparent (is str subclass, roundtrips on stack/env/prog/REPL) but exported and asserted for future guard points.
+- Help text now guides users on solve RPN arg order (low-risk stub; critical for when real CAS active).
+- Git clean at handoff; complete-phase produces handoff + prompt (stays on phase 7 per "CLEARED TO CONTINUE", not full phase gate).
+- No C, no new syntax, thin (changes only in cas + glue dispatch + help + test + docs), prior auditor Minors/Nits addressed before next.
+- Demo + batch still visibly exercise CAS path.
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-7-inc2: CAS dispatch fix + Symbolic wrapper + help note for solve RPN + diff RPN test cov + nits + docs"`. Hardware gate remains human (ralph record... after real PicoCalc UF2). Do not advance phase (7->8) until full phase criteria + HW + auditor "PHASE COMPLETE" language.

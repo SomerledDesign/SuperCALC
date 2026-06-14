@@ -1,22 +1,37 @@
 """
-SuperCalc.OG — Thin CAS / symbolic surface (Phase 7 inc1).
+SuperCalc.OG — Thin CAS / symbolic surface (Phase 7 inc2).
 
 Leverages eigenmath (or common aliases) when present in the base firmware
 (zenodante/LofiFren-style builds often include it as a prebuilt MPy module).
 Falls back to a documented stub on host or ports without eigenmath.
 All core paths remain offline; no network, no heavy deps.
 
-Thin boundary: MPy orchestration here (like solver/plot). No C changes in inc1.
-Future: richer surface (diff/integrate/series, ulab interop, C numeric CAS fallback)
-or direct src/math dispatch if eigenmath absent in a build.
+Thin boundary: MPy orchestration here (like solver/plot). No C changes.
+inc1: basic simplify/solve/diff as RPN + .cas + stub.
+inc2: Symbolic first-class wrapper (str subclass for RPL compat + future mixing guard),
+dispatch hygiene in expr, help text for solve RPN layout, full RPN word test cov, nits closed.
 
-RPL spirit: results (currently str for symbolic) are first-class stack values,
-storable/recallable, usable inside Programs, visible in REPL .s etc.
+RPL spirit: results are first-class stack values (Symbolic for symbolic; sto/rcl/use in progs),
+visible in REPL .s etc. Future numeric-on-symbolic will be able to detect via isinstance.
 """
 
 HAS_CAS = False
 _CAS_BACKEND = "stub"
 _EIGEN = None
+
+
+class Symbolic(str):
+    """First-class symbolic result on the RPL stack (str subclass).
+
+    Keeps full compatibility with existing str paths (sto/rcl, prog bodies, REPL display,
+    .s etc) while allowing future detection to avoid treating symbolic forms as
+    literal string data or feeding them blindly to numeric ops.
+
+    On eigenmath: holds the backend's printed result form.
+    On stub: "stub:..." forms for immediate host/demo/test usability.
+    """
+    pass
+
 
 def _try_import_eigen():
     global HAS_CAS, _CAS_BACKEND, _EIGEN
@@ -62,20 +77,20 @@ def simplify(expr):
     s = str(expr)
     if not HAS_CAS or _EIGEN is None:
         # Host-friendly stub: immediately shows "CAS path taken" in demo/REPL without external dep.
-        return f"stub:simplify({s})"
+        return Symbolic(f"stub:simplify({s})")
     try:
         # Common eigenmath surface patterns (defensive; ports vary slightly)
         if hasattr(_EIGEN, "simplify"):
             res = _EIGEN.simplify(s)
-            return str(res)
+            return Symbolic(str(res))
         if hasattr(_EIGEN, "eval"):
             # Some builds expose eval("simplify(...)")
             res = _EIGEN.eval("simplify(" + s + ")")
-            return str(res)
+            return Symbolic(str(res))
         # Fallback: pass through if no known entry (still "has_cas" true)
-        return s
+        return Symbolic(s)
     except Exception as e:
-        return f"cas-err:simplify:{e}"
+        return Symbolic(f"cas-err:simplify:{e}")
 
 def solve(eq, var="x"):
     """
@@ -85,27 +100,28 @@ def solve(eq, var="x"):
     s = str(eq)
     v = str(var)
     if not HAS_CAS or _EIGEN is None:
-        return f"stub:solve({s}, {v})"
+        return Symbolic(f"stub:solve({s}, {v})")
     try:
         if hasattr(_EIGEN, "solve"):
             res = _EIGEN.solve(s, v)
-            return str(res)
+            return Symbolic(str(res))
         if hasattr(_EIGEN, "eval"):
             res = _EIGEN.eval("solve(" + s + ", " + v + ")")
-            return str(res)
-        return f"eigenmath-solve({s},{v})"
+            return Symbolic(str(res))
+        return Symbolic(f"eigenmath-solve({s},{v})")
     except Exception as e:
-        return f"cas-err:solve:{e}"
+        return Symbolic(f"cas-err:solve:{e}")
 
-# Small set of additional surface words for RPL/REPL experimentation (inc1 minimal)
+# Small set of additional surface words for RPL/REPL experimentation (inc1 minimal; inc2: typed)
 def diff(expr, var="x"):
+    """Differentiate expr w.r.t. var (stub or eigenmath delegation). Returns Symbolic result."""
     if not HAS_CAS or _EIGEN is None:
-        return f"stub:diff({expr}, {var})"
+        return Symbolic(f"stub:diff({expr}, {var})")
     try:
         if hasattr(_EIGEN, "diff"):
-            return str(_EIGEN.diff(str(expr), var))
-        return f"eigenmath-diff({expr},{var})"
+            return Symbolic(str(_EIGEN.diff(str(expr), var)))
+        return Symbolic(f"eigenmath-diff({expr},{var})")
     except Exception as e:
-        return f"cas-err:diff:{e}"
+        return Symbolic(f"cas-err:diff:{e}")
 
-__all__ = ["HAS_CAS", "version", "info", "simplify", "solve", "diff"]
+__all__ = ["HAS_CAS", "Symbolic", "version", "info", "simplify", "solve", "diff"]

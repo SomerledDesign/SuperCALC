@@ -381,15 +381,18 @@ def _execute_rpn_body(tokens, stack, env):
                 stack.append(float(len(lst)))
                 i += 1
                 continue
-            # Phase 7 CAS ops (pop str/num, delegate to thin cas layer, push symbolic result str)
-            if op in _CAS_OPS or op in ("simplify", "cas_simplify"):
+            # Phase 7 CAS ops (pop str/num, delegate to thin cas layer, push Symbolic/str result as first-class)
+            # Note: solve/diff use 2-arg RPN layout "eq var <op>" (top-of-stack is var when 2 items);
+            # .cas forms and explicit 1-arg solve(diff) default var="x" are unambiguous.
+            if op in ("simplify", "cas_simplify"):
                 if not stack: raise ValueError("rpn stack underflow")
                 arg = stack.pop()
                 stack.append(_cas.simplify(arg))
                 i += 1
                 continue
             if op in ("solve", "cas_solve"):
-                # usage: "x^2-2" "x" solve   or single-arg form treated as eq with default x
+                # usage (RPN): <eq-str> <var-str> solve    e.g. push "x^2-25" then "x" then "solve"
+                # (top item popped first as var; 1-arg form defaults var="x")
                 if len(stack) < 1: raise ValueError("rpn stack underflow for solve")
                 if len(stack) >= 2:
                     var = stack.pop()

@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 7 inc1 — CAS Surface start (thin mp/lib/cas.py eigenmath-or-stub + simplify/solve RPN + .cas in REPL + symbolic first-class on stack + prog; last alias restored + Phase6 QA nits; full demo+tests green). Ralph Loop active (current_phase=7). HW smoke backlog (0-6) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
+**Status**: Phase 7 inc2 — CAS dispatch fix + Symbolic wrapper + help note for solve RPN convention + diff/solve RPN test cov + nits closed (per prior auditor). Full tests+demo green on host. Ralph Loop (phase 7 per set; LOOP_STATE may lag until complete). HW backlog (0-7) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
 
 ## Vision
 

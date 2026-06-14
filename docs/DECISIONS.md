@@ -468,3 +468,25 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 
 **Date**: 2026-06 Phase 7 inc1
 
+## 2026-06 (Phase 7 inc2 — CAS dispatch hygiene + richer symbolic foundations start)
+### CAS RPN dispatch correctness (fix latent bug in inc1 CAS block)
+**Decision**: Replaced the flawed `if op in _CAS_OPS or op in ("simplify", "cas_simplify"):` (which because _CAS_OPS contains solve/diff would route "solve"/"diff" RPN words into the simplify handler + continue, never reaching their arg-pop logic) with explicit per-op ifs for the three families inside the existing mini-rpn guard block in expr._execute_rpn_body. Added clear comments documenting the RPN solve/diff 2-arg stack convention ("<eq> <var> <op>").
+
+**Rationale**: Direct response to auditor Minor (solve stack ambiguity) + the missing diff RPN test coverage + discovery during inc2 that solve/diff RPN words were silently broken on host (dot .cas paths worked). Keeps dispatch thin (still only in one place); _CAS_OPS set remains the source for bare-str exclusion and token recog. Small verifiable hygiene that makes the surface correct before eigenmath is exercised on device.
+
+**Date**: 2026-06 Phase 7 inc2
+
+### Symbolic as first-class str subclass (RPL + future guard)
+**Decision**: Introduced mp.lib.cas.Symbolic(str) — a minimal str subclass — returned from all cas.simplify/solve/diff paths (stub and eigen paths). Exported; tests assert isinstance(..., (str, Symbolic)) and issubclass. No changes to expr/REPL/prog contracts (still roundtrips as stack value, storable etc). Updated cas.py header + docstrings.
+
+**Rationale**: Addresses the "string-as-symbolic-type" observation/risk noted in Phase 7 inc1 auditor report and DECISIONS. Gives RPL first-class symbolic results a distinguishable type for future (pre-eigen or post) numeric mixing guards, pretty-print, or auto numeric eval without breaking any inc1 behavior or host demo/tests. Thin, zero C, offline, pure MPy (matches ulab leverage pattern). Recorded as first concrete step on "richer symbolic foundations".
+
+**Date**: 2026-06 Phase 7 inc2
+
+### Help text + solve convention documentation
+**Decision**: Extended _help_text() cas section with explicit "RPN solve note: push <eq> <var> solve ... ; .cas form clearer for arg order". Updated module/docstring headers in calc_repl/expr/cas and demo print to "inc2". Added solve 2-arg + diff RPN + .cas diff coverage to the cas test (previously only simplify RPN + dot solve).
+
+**Rationale**: Fulfills auditor "Must-fix before eigenmath goes live" recommendation for help note + "Should-fix in next test pass" for diff RPN word. Also closes the "diff() lacks docstring" nit and redundant-guard nit as side-effect of the dispatch cleanup. Matches "address every issue", "Documentation is part of the work", and "Small, verifiable slices".
+
+**Date**: 2026-06 Phase 7 inc2 (addressing prior auditor report)
+

@@ -1,5 +1,5 @@
 """
-SuperCalc.OG Phase 7 inc1 — CalcREPL driver (REPL + UI integration + CAS surface)
+SuperCalc.OG Phase 7 inc2 — CalcREPL driver (REPL + UI integration + CAS surface + dispatch/ help hygiene)
 
 Unified calculator REPL experience on top of the hybrid engine:
 - enter(line): tries infix algebraic first (friendly default, hits C rpn_eval hot path via eval_infix),
@@ -467,13 +467,14 @@ class CalcREPL:
 
     def _help_text(self):
         return (
-            "SuperCalc.OG REPL (phase7 inc1 CAS start)\n"
+            "SuperCalc.OG REPL (phase7 inc2 CAS + nits)\n"
             "  algebraic: 2+3*sin(pi/2)   |   2^3 + sqrt(9)\n"
             "  rpn/stack:  2 3 + dup *    |   rcl x 2 *   |   dup drop swap over\n"
             "  sto/rcl:    5 sto x        |   rcl x\n"
             "  lastx/abs:  2+3  lastx *    |   -4 abs     (HP LASTx = prior X before cmd; abs on stack; last/last_x aliases too)\n"
             "  progs:      .prog dbl 2 *  then  3 rcl dbl run\n"
-            "  cas:        'x+x' simplify |   .cas simplify x^2+2*x+1\n"
+            "  cas:        'x+x' simplify |   .cas simplify x^2+2*x+1  |  .cas solve x^2-2 x\n"
+            "              RPN solve note: push <eq> <var> solve  (e.g. 'x^2-25' 'x' solve); .cas form clearer for arg order\n"
             "  cmds: .s .stack .v .vars .plot <f> .solve <f> <a> <b> .prog <n> <body...> .cas ... .demo .clear .help\n"
             "  solve/plot observe 'x' and sto side-effects (RPL)\n"
         )
@@ -535,7 +536,7 @@ class CalcREPL:
         # 6. hybrid visibility
         out.append("hybrid C math: " + str(HAS_C_MATH))
 
-        # 7. CAS (Phase 7 inc1): exercises thin cas layer (eigenmath or stub on host)
+        # 7. CAS (Phase 7 inc2): exercises thin cas layer + Symbolic results (eigenmath or stub on host)
         # Use stack-push + bare cas word (matches how lists/stats are exercised in demo; one-line quoted-str syntax not in scope)
         self.stack.append("x+x")
         cres = self.enter("simplify")
@@ -557,7 +558,7 @@ class CalcREPL:
 def run_demo():
     """Run the built-in demo tour (exercises expr + prog + solver + stats + plot + cas)."""
     r = CalcREPL()
-    print("=== SuperCalc.OG Phase 7 REPL demo (CAS inc1) ===")
+    print("=== SuperCalc.OG Phase 7 REPL demo (CAS inc2) ===")
     r._run_internal_demo()
     print("=== end demo (stack now has results; .s to inspect) ===")
     print(r.show_stack("final demo stack"))

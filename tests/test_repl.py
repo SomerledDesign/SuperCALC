@@ -306,28 +306,44 @@ def test_repl_micropython_typing_guard_and_compact_infix_robust():
 
 
 def test_repl_cas_surface_stub_and_rpn():
-    """Phase 7 inc1: CAS thin surface (stub on host) via enter, dot .cas, and rpn word via delegation."""
+    """Phase 7 inc2: CAS thin surface (stub) + dispatch + Symbolic wrapper + RPN word coverage for all 3 ops."""
     from mp.ui.calc_repl import CalcREPL
-    from mp.lib.cas import HAS_CAS as _has, simplify as _simp, info as _cinfo
+    from mp.lib.cas import HAS_CAS as _has, simplify as _simp, solve as _csol, diff as _cdif, info as _cinfo, Symbolic
     r = CalcREPL()
-    # direct cas via rpn-style on stack (str pushed as data, then cas word)
+    # direct cas via rpn-style on stack (str pushed as data, then cas word) — simplify
     r.stack.append("x+x")
     res = r.enter("simplify")
-    assert isinstance(res, str)
-    assert "stub:simplify" in res or (not _has and "x+x" in res)  # host stub visible
+    assert isinstance(res, (str, Symbolic))
+    assert "stub:simplify" in str(res) or (not _has and "x+x" in str(res))
+    # diff via direct RPN word (auditor Minor: was untested)
+    r.stack.append("x^2")
+    dres = r.enter("diff")
+    assert isinstance(dres, (str, Symbolic))
+    assert "stub:diff" in str(dres)
+    # solve via RPN word 2-arg (eq then var on stack) + 1-arg default
+    r3 = CalcREPL()
+    r3.stack.append("x^2-25")
+    r3.stack.append("x")
+    sres2 = r3.enter("solve")
+    assert isinstance(sres2, (str, Symbolic))
+    assert "stub:solve" in str(sres2)
+    r3.stack.append("y^2-9")
+    sres1 = r3.enter("solve")  # 1-arg, defaults var x but here eq has y (stub still exercises path)
+    assert isinstance(sres1, (str, Symbolic))
     # .cas dot handler (implicit simplify and explicit)
     r2 = CalcREPL()
     c1 = r2.enter(".cas x^2 + 2*x + 1")
-    assert isinstance(c1, str) and "stub:simplify" in str(c1)
+    assert isinstance(c1, (str, Symbolic)) and "stub:simplify" in str(c1)
     c2 = r2.enter(".cas solve x^2-2 x")
-    assert isinstance(c2, str) and "stub:solve" in str(c2)
+    assert isinstance(c2, (str, Symbolic)) and "stub:solve" in str(c2)
+    c3 = r2.enter(".cas diff x^3 x")
+    assert isinstance(c3, (str, Symbolic)) and "stub:diff" in str(c3)
     # info visible
     inf = _cinfo()
     assert "has_cas" in inf
-    # (CAS in prog body tokens would require data-str literals in rpn streams; out of inc1 scope.
-    #  The REPL visible + direct stack-append + .cas paths + delegation already prove RPL-friendly use.
-    #  Programs can still call cas words after pushing symbolic via prior ops or rcl of a str var.)
-    print("OK cas surface (stub path exercised in REPL + dot + delegation; prog integration natural via stack)")
+    # Symbolic is str subclass (RPL first-class + future detectability)
+    assert issubclass(Symbolic, str)
+    print("OK cas surface (stub + Symbolic + all RPN words: simplify/diff/solve 2arg/1arg + .cas + delegation)")
 
 
 if __name__ == "__main__":
