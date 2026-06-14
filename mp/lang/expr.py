@@ -19,6 +19,7 @@ Entry point notes (see m-3 in Phase 1 inc1 QA):
   Future phases (VM) should not assume eval_rpn() itself is the C-accelerated batch path.
 
 Phase 2 note: programs (mp.lang.prog.Program) integrate via env (sto/rcl) and eval_rpn (program bodies execute inline on shared stack for RPL semantics).
+Phase 6: execute_rpn_body(tokens, stack, env) is the single source of truth for RPN dispatch and is the delegation target for CalcREPL visible executor (thin orchestration, no dup).
 
 Usage (host or device after flash):
   from mp.lang.expr import eval_infix, eval_rpn, to_rpn
@@ -298,6 +299,8 @@ def _execute_rpn_body(tokens, stack, env):
             continue
         # RPL word call: bare string not a builtin op may be a program name in env (first-class call by word)
         # If resolves to a program, execute inline; otherwise fall through to unknown (or numeric op table).
+        # Enhanced for Phase 6: bare str that resolves to a non-prog value (e.g. "lastx" from CalcREPL direct
+        # classification of known register words) is resolved and pushed. Keeps REPL direct paths delegable.
         if isinstance(op, str) and op not in ("+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "neg", "chs", "dup", "drop", "swap", "over", "sto", "store", "->", "rcl", "recall", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size") and op not in EVAL_ALIASES:
             if env and op in env and is_program(env[op]):
                 _execute_rpn_body(env[op].body, stack, env)
@@ -308,6 +311,11 @@ def _execute_rpn_body(tokens, stack, env):
                 val = _resolve_var(op, env)
                 if is_program(val):
                     _execute_rpn_body(val.body, stack, env)
+                    i += 1
+                    continue
+                else:
+                    # non-program var value (supports lastx and similar bare str words from REPL visible)
+                    stack.append(val)
                     i += 1
                     continue
             except Exception:
@@ -487,4 +495,9 @@ def eval_rpn_str(rpn_text, env=None):
                 toks.append(("var", part))  # will resolve or be used by sto/rcl
     return eval_rpn(toks, env)
 
-__all__ = ["to_rpn", "eval_infix", "eval_rpn", "eval_rpn_str", "HAS_C_MATH", "Program"]  # Program re-export for convenience (Phase 2)
+# Shared canonical RPN body executor (Phase 6 refactor): use this with a caller-provided stack
+# (e.g. CalcREPL.visible stack) for thin delegation instead of duplicating dispatch.
+# Thin boundary: MPy callers supply stack+env; body owns the op semantics + side effects.
+execute_rpn_body = _execute_rpn_body
+
+__all__ = ["to_rpn", "eval_infix", "eval_rpn", "eval_rpn_str", "HAS_C_MATH", "Program", "execute_rpn_body"]  # Program re-export for convenience (Phase 2)

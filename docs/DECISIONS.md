@@ -387,6 +387,27 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Rationale**: Enables the documented/help examples and test cases ("1 2 3 sum", cross-line len after data entry, "[2 '*'] 'dbl' sto") while staying strictly inside Phase 5 scope (REPL orchestration + packaging foundations) and "no new syntax for lists" / thin reuse. The list data model and stats ops were already delivered in Phase 4; REPL just makes them conveniently usable from text entry.
 **Date**: 2026-06 Phase 5 inc1 (attempt 1)
 
+## 2026-06 (Phase 6 inc1 — REPL Architecture Cleanup + dedup per Phase 5 QA Major)
+
+### Refactor CalcREPL visible executor to delegate to expr.execute_rpn_body (eliminate duplication, hit thin-orchestration intent)
+**Decision**: 
+- In expr.py: exposed `execute_rpn_body = _execute_rpn_body` (public alias + doc) as the single source of RPN dispatch for any caller stack (CalcREPL self.stack, future UI stacks, etc). Small enhancement in the "bare str not-builtin" block: if resolve_var succeeds for non-prog, push the value (so "lastx" and similar REPL-whitelisted register words classified as bare str by _build_smart/rough-toks are handled when delegated; normal paths continue to use ('var', name) tuples from parsers).
+- In calc_repl.py: replaced the entire 141 LOC `_execute_visible_rpn_words` (stack words, sto/rcl with lastx special, len/stats, unaries sans atan2, run/prog-by-name, neg) with a ~20 LOC thin version that (a) keeps only the REPL-specific data-list collection for "1 2 3 sum" convenience, (b) pre-pulls latest lastx from env into self (and publish) so delegated body sees current register state, (c) delegates via `execute_rpn_body(toks, self.stack, self.env)`, (d) post-syncs self.lastx from env (catches sto lastx done by core _eval path). Deleted the ~30 LOC `_resolve_for_visible` (and its repeated `import math`).
+- Updated imports, module/class docs, and added coverage in test for atan2 stepwise + hardened error test pattern (else: assert after expected raises).
+- No behavior change for users; prog "run" in visible direct paths now does true inline body exec on the REPL live stack (RPL improvement).
+
+**Rationale**:
+- Directly addresses the Phase 5 QA Major (and repeated prior notes): "_execute_visible... substantially duplicates _execute_rpn_body (141 LOC)"; "CalcREPL is 532 LOC ... against the stated <200 LOC orchestration criterion"; "any op added to _execute_rpn_body must be manually mirrored"; "refactor ... Target: collapse CalcREPL class to ≤200 LOC and eliminate the duplicate dispatch tables."
+- PGR + coding standards: thin boundary, "leverage base", "do not rewrite", C hot but here MPy dispatch single-sourced. Now only one place owns sto/rcl/dup/atan2/etc semantics.
+- Maintainability win + future-proof: adding "hypot", "cbrt", new stats, or VM words requires edit in expr only; REPL "just works" for stepwise.
+- RPL spirit: delegation makes "run" / bare prog name on visible path execute the sub-body on the caller's exact stack (consuming/pushing live) rather than fresh temp + top copy. Side effects and multi-value programs now visible identically.
+- LASTx remains correctly isolated as REPL orchestration concern (pre-lift, dedicated register, sto special, mirror for infix resolve); core expr stays unaware.
+- Small slice: no new features, no parser changes, no C, tests only strengthened for the refactored paths + the flagged weak pattern. atan2 gap closed "for free" by delegation (body already had full binary support).
+- LOC: file reduced; the active duplicated dispatch is gone (other bulk in class is .demo help text + dot handlers which are payload, acceptable for this inc; further slim can be packaging follow-up).
+- Matches "Small, verifiable slices", "Documentation is part of the work", "address all Blockers/Majors before next", "before adding new capability".
+
+**Date**: 2026-06 Phase 6 inc1 (attempt 1)
+
 ### Packaging & import surface for phase 5 start
 **Decision**: No root supercalc.py or full package __init__ yet (kept for a later polish inc). Entry via `from mp.ui.calc_repl import CalcREPL, run_demo`; tests and solver-style ROOT path insert inside modules that need standalone run. mp/ui/__init__.py provides clean reexport. Documented in module docstring + PHASES/ README.
 

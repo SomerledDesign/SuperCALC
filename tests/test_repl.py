@@ -132,15 +132,21 @@ def test_repl_error_cases_clear_and_underflow():
         r.enter("1 0 /")  # div0 via rpn
     except Exception as e:
         assert "zero" in str(e).lower() or "div" in str(e).lower() or "underflow" in str(e).lower()
+    else:
+        assert False, "expected exception for div0"
     try:
         r.enter("dup")  # underflow
     except Exception as e:
         assert "underflow" in str(e).lower() or "stack" in str(e).lower()
+    else:
+        assert False, "expected exception for stack underflow"
     # unknown var stays error (no silent NaN)
     try:
         r.enter("no_such_var 2 *")
     except Exception as e:
         assert "undefined" in str(e).lower() or "enter failed" in str(e).lower()
+    else:
+        assert False, "expected exception for undefined var"
     print("OK clear errors for div0 / underflow / undef var")
 
 def test_repl_demo_and_batch_run_exercise_everything():
@@ -203,6 +209,12 @@ def test_repl_lastx_and_rpn_func_words():
     r2.enter("7")
     r2.enter("-3 abs")
     assert approx(r2.stack[-1], 3.0)
+    # atan2 now covered via delegation (was silent skip in old visible for stepwise "atan2" word)
+    r4 = CalcREPL()
+    r4.enter("1")
+    r4.enter("2")
+    r4.enter("atan2")  # direct visible path for lone func word after values on stack
+    assert approx(r4.stack[-1], 0.4636476, 1e-5)
     # lastx lift on command entry (pre-op X captured before "abs" mutates)
     r3 = CalcREPL()
     r3.enter("42")

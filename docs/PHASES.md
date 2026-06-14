@@ -103,9 +103,9 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 5 — REPL + UI Integration & Packaging Foundations (inc1: integrated CalcREPL driver + ui/ skeleton + host demo harnessing expr/prog/solver/plot/stats; docs + packaging start)
+**Current Phase (per LOOP_STATE.json)**: 6 — REPL Architecture Cleanup + Packaging / CAS Foundations start (inc1: delegate visible RPN executor to expr (dedup + thin CalcREPL orchestration), address Phase 5 Major/Minors (atan2 coverage, weak error tests), docs + decisions; no new user capability before debt resolved)
 
-Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1: REPL/UI foundations per below. Prior phase inc1s delivered core math, prog, plot data+ascii, stats+solver+lists.)
+Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1 host cleared by auditor (with noted Major debt); Phase 6 inc1: the required refactor per QA carry-forward before Phase 5 can be declared complete or new CAS/UI work. HW verification still human gate for all prior + this.)
 
 ## Phase 2 — REPL + Stack + HP-style Programmable Language Skeleton
 
@@ -288,3 +288,29 @@ Update this file's phase sections and status when the automation indicates a gat
 
 (For reference — see prior outline and ARCHITECTURE.md; only current phase work is active.)
 - Phase 6+: Richer CAS (eigenmath surface), units completeness + arithmetic, 3D/implicit graphing, performance tuning, SD program library + editor polish, full interactive graphing UI (trace/zoom on 320x320), packaging for distribution.
+
+## Phase 6 — REPL Polish, Packaging & Richer CAS Foundations
+
+**Goal**: Address the Phase 5 architectural Major (CalcREPL duplication + LOC vs thin-orchestration criterion) as first priority before new capability; continue REPL/UI packaging polish and begin surfacing richer CAS (eigenmath if present in base) while keeping REPL primary and thin C/MPy boundary. Small verifiable slices only on declared phase.
+
+**Deliverables for inc1 (small verifiable slice)**:
+- [x] mp/lang/expr.py: expose `execute_rpn_body(tokens, stack, env)` as the canonical/shared RPN dispatch (was _); small enhancement so bare-str var words (e.g. "lastx" from CalcREPL's known-word classification) resolve+push when delegated (normal var paths continue using ('var',) tuples).
+- [x] mp/ui/calc_repl.py: refactor _execute_visible_rpn_words (was 141 LOC dup of stack/sto/rcl/unary/stats/run/progcall dispatch) to thin pre-mirror lastx + delegate to execute_rpn_body(self.stack, ...) + post-sync; removed _resolve_for_visible entirely (and its per-call import math). Direct visible path now ~15 LOC. REPL-specific LASTx lift/mirror and the "N N N stats" data-list collection remain as justified REPL sugar; all other dispatch is delegated (single source of truth). Inline RPL run on visible stack now (better than prior fresh-stack+top-append for prog "run").
+- [x] tests/test_repl.py: hardened the weak error-test pattern (test_repl_error_cases_clear_and_underflow now has explicit else: assert False after each try that must raise); added atan2 stepwise visible coverage case (exercises delegation for "atan2" binary word after values on stack; previously silent no-op in old visible).
+- [x] All 6 test suites + demo + manual lastx/sto/prog/stepwise/compact-infix/atan2 cases green on host fallback.
+- [x] Docs: PHASES.md (this section + current-phase marker updated to 6), DECISIONS.md (detailed refactor entry with rationale + LOC/maintainability win), no scope creep (no CAS calls yet, no new syntax, no C, no UI pixels).
+- [ ] On-device smoke for the refactored REPL (import + run_demo + lastx + "1 2 atan2" stepwise + prog run + .solve etc) — human after UF2.
+- [ ] Hardware verification record (ralph or LOOP); backlog for 0-5 still pending.
+
+**Success Criteria (inc1)**:
+- Host tests green; no regression on mixed infix/rpn, lastx (lift + sto lastx via _eval path + resolve), prog run from repl (inline on visible stack), data lists/stats, solver/plot side effects, compact "2+3", bare predefs.
+- Delegation works: "atan2" now dispatches in visible direct path (lone word after two pushes); error tests no longer vacuously pass.
+- Thin: visible executor no longer duplicates the dispatch tables; CalcREPL class implementation size reduced (primary driver of 500+ LOC was the dup + demo strings); future op additions only edited in one place.
+- Git clean at handoff; complete-phase produces usable artifact.
+- DECISIONS + PHASES updated; Phase 5 Major debt resolved as required before "new capability" per prior auditor note.
+- Still REPL-first, offline, double, RPL spirit preserved/enhanced (inline subprog exec on live stack).
+- No breakage to hybrid/expr/prog boundary or prior phases.
+
+**Automation Note**: Use `./tools/ralph.sh complete-phase "phase-6-inc1: REPL dedup delegate + lastx/atan2/test fixes + docs"` . This inc1 is the required cleanup; Phase 5 remains not formally complete until HW + auditor re-clear (no advance until then). Phase 6 inc2 can begin CAS surface (eigenmath) once this gate passes.
+
+**Current inc1 status**: Host implementation + full test green + docs complete. Refactor is transparent to users (same enter/.s/.demo behavior) but architecturally correct (thin + no future dup maintenance). On-device + HW (incl backlog) human step post-UF2. Use ralph complete-phase for handoff.

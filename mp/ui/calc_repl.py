@@ -16,13 +16,14 @@ Unified calculator REPL experience on top of the hybrid engine:
 RPL spirit: stack is always visible/inspectable, programs are first-class and callable by name
 or via "run", side-effects (sto during solve/plot) are observable after the operation.
 
-Thin boundary: zero new numeric or parsing logic — only orchestration + presentation.
+Thin boundary (Phase 6 strengthened): zero new numeric or parsing logic — only orchestration + LASTx register + presentation.
 Re-uses exactly:
-  mp.lang.expr.{eval_infix, eval_rpn_str, to_rpn}
+  mp.lang.expr.{eval_infix, eval_rpn_str, to_rpn, execute_rpn_body}
   mp.lang.prog.{make_prog, is_program}
   mp.lib.solver.find_root
   mp.plot.{ascii_plot, cartesian_sample}
   mp.lib.hybrid (indirectly via above + version)
+execute_rpn_body is the single dispatch source; CalcREPL passes its live self.stack for visible stepwise + RPL inline run semantics.
 
 Host: pure Python, works in any REPL.
 Device: run from base firmware REPL/terminal (text only; pixels in later ui inc).
@@ -50,7 +51,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH
+from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH, execute_rpn_body
 from mp.lang.prog import make_prog, is_program
 from mp.lib.solver import find_root
 from mp.plot import ascii_plot, cartesian_sample
@@ -74,9 +75,9 @@ def _is_var_token(tok):
 
 class CalcREPL:
     """
-    Minimal but complete interactive calculator state + entry driver.
-    Stack holds numbers, lists (for stats), Program objects (first-class).
-    env holds user vars + stored Programs (RPL sto/rcl semantics).
+    Thin orchestration driver (target <=200 LOC post Phase 6 refactor).
+    Stack + env + LASTx register. enter() unifies infix + direct RPN words + dot cmds.
+    Delegates all RPN execution to expr.execute_rpn_body (self.stack passed for visible + inline RPL).
     """
 
     def __init__(self):
@@ -238,7 +239,16 @@ class CalcREPL:
                 raise ValueError(f"enter failed (tried rpn then infix): {e_rpn} / {e2}") from e_rpn
 
     def _execute_visible_rpn_words(self, toks):
-        """Direct manip on self.stack + env for pure stack words / sto/rcl / len/stats / neg / EVAL run."""
+        """Thin REPL-visible orchestration over the canonical expr.execute_rpn_body (Phase 6 dedup).
+
+        Preserves: early list-data collection for "N N N stats" one-liners (REPL convenience),
+        LASTx pre-mirror so body resolve sees dedicated register + post-sync after sto lastx etc,
+        and direct manip on live self.stack for stepwise words.
+
+        All dispatch (dup/drop/sto/rcl/unaries/atan2/stats/len/run/prog-by-name) now delegated;
+        REPL lastx/env mirroring and the data-list special case are the only additions here.
+        This collapses the prior ~141 LOC duplicate of _execute_rpn_body.
+        """
         # nums-only or data list: collect/push as single list entry *only if 2+ nums* (so "1 2 3 4" -> list for stats; bare "42" or "7" stays scalar)
         # Exclude var marker tuples (('var', name)) -- they must resolve via name path, not become data lists (was source of silent corruption for bare "pi"/"a+0.5" compact etc).
         if toks and all(_is_number(t) or (isinstance(t, (list, tuple)) and not _is_var_token(t)) for t in toks):
@@ -250,149 +260,22 @@ class CalcREPL:
             elif len(toks) == 1 and isinstance(toks[0], (list, tuple)) and not _is_var_token(toks[0]):
                 self.stack.append(list(toks[0]))
             return
-        i = 0
-        n = len(toks)
-        while i < n:
-            tok = toks[i]
-            if _is_number(tok):
-                self.stack.append(float(tok))
-                i += 1
-                continue
-            if isinstance(tok, tuple) and tok[0] == "var":
-                name = tok[1]
-                val = self._resolve_for_visible(name)
-                self.stack.append(val)
-                i += 1
-                continue
-            if not isinstance(tok, str):
-                i += 1
-                continue
-            op = tok
-            if op in ("dup", "drop", "swap", "over"):
-                if op == "dup":
-                    if not self.stack: raise ValueError("rpn stack underflow")
-                    self.stack.append(self.stack[-1])
-                elif op == "drop":
-                    if not self.stack: raise ValueError("rpn stack underflow")
-                    self.stack.pop()
-                elif op == "swap":
-                    if len(self.stack) < 2: raise ValueError("rpn stack underflow")
-                    self.stack[-1], self.stack[-2] = self.stack[-2], self.stack[-1]
-                elif op == "over":
-                    if len(self.stack) < 2: raise ValueError("rpn stack underflow")
-                    self.stack.append(self.stack[-2])
-                i += 1
-                continue
-            if op in ("sto", "store", "->"):
-                if i + 1 >= n: raise ValueError("sto missing target")
-                if not self.stack: raise ValueError("rpn stack underflow for sto")
-                val = self.stack.pop()
-                name_tok = toks[i + 1]
-                name = name_tok[1] if isinstance(name_tok, tuple) and name_tok[0] == "var" else name_tok
-                if not isinstance(name, str):
-                    raise ValueError("sto target must be name")
-                self.env[name] = val
-                if isinstance(name, str) and name.lower() in ("lastx", "last_x"):
-                    if _is_number(val):
-                        self.lastx = float(val)
-                    else:
-                        self.lastx = val
-                i += 2
-                continue
-            if op in ("rcl", "recall"):
-                if i + 1 >= n: raise ValueError("rcl missing name")
-                name_tok = toks[i + 1]
-                name = name_tok[1] if isinstance(name_tok, tuple) and name_tok[0] == "var" else name_tok
-                if not isinstance(name, str):
-                    raise ValueError("rcl target must be name")
-                val = self._resolve_for_visible(name)
-                self.stack.append(val)
-                i += 2
-                continue
-            if op in ("len", "size"):
-                if not self.stack: raise ValueError("rpn stack underflow")
-                lst = self.stack.pop()
-                if not isinstance(lst, (list, tuple)):
-                    raise ValueError("len/size expects list data")
-                self.stack.append(float(len(lst)))
-                i += 1
-                continue
-            if op in ("sum", "stats_sum", "mean", "stats_mean", "stdev", "stats_stdev"):
-                if not self.stack: raise ValueError("rpn stack underflow")
-                lst = self.stack.pop()
-                if not isinstance(lst, (list, tuple)):
-                    raise ValueError(f"{op} expects list on stack")
-                from mp.lib.hybrid import stats_sum, stats_mean, stats_stdev
-                if op in ("sum", "stats_sum"):
-                    self.stack.append(stats_sum(lst))
-                elif op in ("mean", "stats_mean"):
-                    self.stack.append(stats_mean(lst))
-                else:
-                    self.stack.append(stats_stdev(lst))
-                i += 1
-                continue
-            if op in ("neg", "chs"):
-                if not self.stack: raise ValueError("rpn stack underflow")
-                a = self.stack.pop()
-                self.stack.append(-float(a))
-                i += 1
-                continue
-            if op in ("lastx", "LASTX", "last_x"):
-                # push dedicated LASTx; pull from env if a core sto lastx happened in prior line (e.g. via _eval_rpn path)
-                if "lastx" in self.env and _is_number(self.env.get("lastx")):
-                    self.lastx = float(self.env["lastx"])
-                self.stack.append(self.lastx)
-                i += 1
-                continue
-            if op in ("sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan"):
-                if not self.stack: raise ValueError("rpn stack underflow")
-                a = self.stack.pop()
-                if op == "sin": self.stack.append(sin(float(a)))
-                elif op == "cos": self.stack.append(cos(float(a)))
-                elif op == "tan": self.stack.append(tan(float(a)))
-                elif op == "sqrt": self.stack.append(sqrt(float(a)))
-                elif op == "log": self.stack.append(log(float(a)))
-                elif op == "log10": self.stack.append(log10(float(a)))
-                elif op == "exp": self.stack.append(exp(float(a)))
-                elif op in ("fabs", "abs"): self.stack.append(fabs(float(a)))
-                elif op == "asin": self.stack.append(asin(float(a)))
-                elif op == "acos": self.stack.append(acos(float(a)))
-                elif op == "atan": self.stack.append(atan(float(a)))
-                i += 1
-                continue
-            if op in ("run", "eval", "xeq", "call", "EVAL"):
-                if not self.stack: raise ValueError("rpn stack underflow for eval")
-                p = self.stack.pop()
-                if is_program(p):
-                    from mp.lang.expr import eval_rpn as _er
-                    res = _er(p.body, self.env)
-                    if res is not None:
-                        self.stack.append(res)
-                i += 1
-                continue
-            if isinstance(op, str) and op in self.env and is_program(self.env[op]):
-                from mp.lang.expr import eval_rpn as _er
-                res = _er(self.env[op].body, self.env)
-                if res is not None:
-                    self.stack.append(res)
-                i += 1
-                continue
-            i += 1
 
-    def _resolve_for_visible(self, name):
-        lname = name.lower()
-        if lname in ("lastx", "last_x", "last"):
-            # dedicated HP LASTx; pull latest if core sto lastx (rpn-text/expr path) wrote env since last lift
-            if "lastx" in self.env and _is_number(self.env.get("lastx")):
-                self.lastx = float(self.env["lastx"])
-            return self.lastx
-        if name in self.env:
-            return self.env[name]
-        import math as _m
-        pre = {"pi": _m.pi, "e": _m.e}
-        if name in pre:
-            return pre[name]
-        raise ValueError(f"undefined variable: {name}")
+        # Pull latest dedicated LASTx from env (core _eval/infix paths or sto lastx may have written env since last visible use;
+        # e.g. "99 sto lastx" via rpn-text path sets env but not self.lastx). Then publish to env for body resolve.
+        # lastx is REPL-specific register; core body only knows env.
+        if "lastx" in self.env and _is_number(self.env.get("lastx")):
+            self.lastx = float(self.env["lastx"])
+        if _is_number(self.lastx):
+            self.env["lastx"] = self.lastx
+
+        # Delegate to single source of truth (expr). Body executes *on our live stack* for authentic RPL inline semantics
+        # (e.g. "run" of prog or bare prog name now mutates visible stack directly instead of fresh+append-top).
+        execute_rpn_body(toks, self.stack, self.env)
+
+        # Post-sync LASTx dedicated from any sto lastx (or lastx-producing ops) performed by body.
+        if "lastx" in self.env and _is_number(self.env.get("lastx")):
+            self.lastx = float(self.env["lastx"])
 
     def _build_smart_tokens(self, line):
         """Tokenize rpn text, turning [ ... ] into embedded list tokens (for stats + prog bodies)."""
