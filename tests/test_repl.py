@@ -22,6 +22,7 @@ from mp.ui.calc_repl import CalcREPL, run_demo, batch_run_demo_lines
 from mp.lang.prog import is_program
 from mp.lib.solver import find_root
 from mp.plot import cartesian_sample
+from mp.apps.solver_app import SolverApp, solve_text
 import math
 
 EPS = 1e-9
@@ -44,6 +45,12 @@ def test_repl_basic_infix_and_rpn_mixed():
     # bare number via infix
     r.enter("42")
     assert approx(r.stack[-1], 42.0)
+    # explicit compact infix "2+3" per Phase 5 NEEDS WORK (B-3 routing bug: previously could push
+    # var token tuple or other non-scalar "wrong data" on stack for no-space alg like "2+3")
+    r.enter("2+3")
+    top = r.stack[-1]
+    assert approx(top, 5.0), top
+    assert isinstance(top, (int, float)) and not isinstance(top, (list, tuple, str)), f"compact infix pushed wrong data type: {top!r} (expected scalar)"
     print("OK basic infix + rpn mixed + stack growth")
 
 def test_repl_vars_sto_rcl_and_side_effects():
@@ -155,13 +162,71 @@ def test_repl_demo_and_batch_run_exercise_everything():
     assert len(res) >= 6
     # final after drop etc; just assert no crash and stack has some result
     assert len(r.stack) >= 1
+    # Per Phase 5 NEEDS WORK: assert actual scalar values (not just lengths)
+    # "2+3" is first in the batch lines
+    assert approx(res[0], 5.0), res[0]
     print("OK run_demo + batch_run exercise full prior stack (expr/prog/solver/stats/plot)")
 
 def test_repl_demo_lines_helper():
     lines = ["pi 2 /", "sin", ".s"]
     outs = batch_run_demo_lines(lines, echo=False)
     assert len(outs) == 3
+    # Per Phase 5 NEEDS WORK: assert actual values for pi/2 and sin(pi/2)
+    assert approx(outs[0], 1.5707963267948966, 1e-8), outs[0]
+    assert approx(outs[1], 1.0, 1e-8), outs[1]
     print("OK batch_run_demo_lines helper")
+
+def test_repl_lastx_and_rpn_func_words():
+    r = CalcREPL()
+    # one-line rpn with func (tokenizer now classifies sin as op not var; full eval path)
+    v = r.enter("pi 2 / sin")
+    assert approx(v, 1.0, 1e-8)
+    # lastx auto-stored for scalar result
+    assert "lastx" in r.env
+    assert approx(r.env["lastx"], 1.0, 1e-8)
+    # rcl lastx / direct var resolve in infix/rpn
+    r.enter("lastx 2 *")
+    assert approx(r.stack[-1], 2.0, 1e-8)
+    # stepwise unary also works via visible _execute (after prior result)
+    r.enter("3")
+    r.enter("sqrt")  # lone func word applies to repl stack top
+    assert approx(r.stack[-1], 1.73205080757, 1e-8)
+    # lastx updates on rpn scalar too
+    assert approx(r.env.get("lastx", 0), 1.73205, 1e-4)
+    # solve also updates lastx (via .solve path)
+    r.enter(".solve x*x-3 1 2")
+    assert approx(r.env.get("lastx", 0), 1.73205, 1e-4)
+    print("OK lastx auto + rpn func words (one-line + stepwise) + resolve")
+
+    # abs direct word (visible rpn path + pure manip)
+    r2 = CalcREPL()
+    r2.enter("7")
+    r2.enter("-3 abs")
+    assert approx(r2.stack[-1], 3.0)
+    # lastx lift on command entry (pre-op X captured before "abs" mutates)
+    r3 = CalcREPL()
+    r3.enter("42")
+    # at this point lastx may be 0 or prior; entering next cmd that is "lastx" should lift 42 into lastx then push it
+    r3.enter("lastx")
+    # after "42" line, entering "lastx" line lifts the 42 as pre for the lastx cmd, pushes 42
+    assert approx(r3.stack[-1], 42.0)
+    # sto lastx special: sets dedicated register (and env)
+    r3.enter("99 sto lastx")
+    assert approx(r3.lastx, 99.0)
+    assert approx(r3.env.get("lastx", 0), 99.0)
+    r3.enter("lastx 2 *")
+    assert approx(r3.stack[-1], 198.0)
+    print("OK abs + lastx lift/sto semantics (pre-op capture + special sto)")
+
+    # mp.apps surface (solver_app) import + use from repl harness (phase5 packaging)
+    app = SolverApp(r3)
+    rt = app.solve("x*x-8", 2, 3)
+    assert approx(rt, 2.828427, 1e-5)
+    assert approx(r3.stack[-1], rt)  # pushed by solve_text when repl bound
+    # direct text solve helper
+    rt2 = solve_text("x+1", 0, 10, env={})
+    assert approx(rt2, 1.0)
+    print("OK mp.apps.solver_app import + SolverApp + solve_text integration")
 
 if __name__ == "__main__":
     test_repl_basic_infix_and_rpn_mixed()
@@ -173,4 +238,5 @@ if __name__ == "__main__":
     test_repl_error_cases_clear_and_underflow()
     test_repl_demo_and_batch_run_exercise_everything()
     test_repl_demo_lines_helper()
+    test_repl_lastx_and_rpn_func_words()
     print("\nALL Phase 5 REPL tests PASSED")

@@ -9,6 +9,7 @@ Unified calculator REPL experience on top of the hybrid engine:
 - Maintains visible stack + env (vars + first-class Programs) with full side-effect visibility.
 - Dot-commands (.s, .plot, .solve, .help, .demo, ...) for immediate value from prior libs
   (solver, ascii plot, stats via hybrid, prog sto/run).
+- LASTx + abs HP words (lift on entry, rpn visible, sto lastx special, mirrored for infix resolve).
 - batch_run(lines) for deterministic host tests and scripted demos (no input()).
 - run_demo(): self-contained tour exercising *every* major prior capability in one go.
 
@@ -39,11 +40,11 @@ Public:
     r.enter(".plot sin(x)")
     run_demo()
 """
-from __future__ import annotations
-from typing import Any, List, Dict, Optional, Union
-import sys
 import os
+import sys
 
+# No typing imports or __future__ annotations: per Phase 5 NEEDS WORK auditor blocker,
+# these prevent clean import on MicroPython device. All annotations dropped or moved to docs.
 # Ensure project root on path for standalone runs (matches solver.py / test_* pattern)
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
@@ -53,6 +54,13 @@ from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH
 from mp.lang.prog import make_prog, is_program
 from mp.lib.solver import find_root
 from mp.plot import ascii_plot, cartesian_sample
+
+# Unary scientific functions for direct visible RPN apply (stepwise like "1.57 sin" after prior result).
+# (Binary ops like + typically entered in one line; 1-line rpn text paths use full eval_rpn which supports all.)
+from mp.lib.hybrid import (
+    sin, cos, tan, sqrt, log, log10, exp, fabs, asin, acos, atan
+)
+_FUNC_NAMES = {"sin", "cos", "tan", "sqrt", "log", "log10", "exp", "abs", "fabs", "asin", "acos", "atan", "atan2"}
 
 
 def _is_number(tok):
@@ -67,12 +75,13 @@ class CalcREPL:
     """
 
     def __init__(self):
-        self.stack: List[Any] = []
-        self.env: Dict[str, Any] = {}
-        self.history: List[str] = []
-        self.last_result: Any = None
+        self.stack = []
+        self.env = {}
+        self.history = []
+        self.last_result = None
+        self.lastx = 0.0  # HP-style LASTx register: prior X captured before command that yields new result; mirrored to env['lastx'] for infix/rpn/prog resolve
 
-    def _fmt(self, v: Any) -> str:
+    def _fmt(self, v):
         if isinstance(v, float):
             if abs(v) < 1e-12:
                 return "0"
@@ -86,13 +95,13 @@ class CalcREPL:
             return f"<Prog {nm} len={len(getattr(v, 'body', []))}>"
         return str(v)
 
-    def show_stack(self, title: str = "stack") -> str:
+    def show_stack(self, title="stack"):
         if not self.stack:
             return f"[{title} empty]"
         lines = [f"  {i+1}: {self._fmt(v)}" for i, v in enumerate(self.stack)]
         return f"[{title} ({len(self.stack)})]\n" + "\n".join(lines)
 
-    def show_vars(self) -> str:
+    def show_vars(self):
         if not self.env:
             return "[vars empty]"
         items = []
@@ -100,7 +109,7 @@ class CalcREPL:
             items.append(f"  {k} = {self._fmt(v)}")
         return "[vars]\n" + "\n".join(items)
 
-    def enter(self, line: str) -> Any:
+    def enter(self, line):
         """
         Process one input line.
         - Dot-commands (.s .stack .vars .plot <expr> .solve <f> <a> <b> .help .demo .clear .prog)
@@ -119,26 +128,37 @@ class CalcREPL:
         if line.startswith("."):
             return self._handle_dot(line)
 
+        # HP LASTx discipline (REPL layer): capture current numeric top as lastx *before* this command runs
+        # (so LASTx holds the X value prior to the operation; classic HP behavior approximated line-at-a-time).
+        if self.stack and _is_number(self.stack[-1]):
+            self.lastx = float(self.stack[-1])
+            self.env["lastx"] = self.lastx  # mirror so infix "lastx+1", rcl lastx, and prog sidefx see it
+
         # Heuristic: alg cues or (no user prog name present) -> try infix first for friendly alg + C path
         parts = [p for p in line.split() if p]
         has_prog_name = any(p in self.env and is_program(self.env.get(p)) for p in parts)
         has_alg_cue = any(c in line for c in "()^") or ("(" in line and ")" in line) or any(op + "(" in line for op in ("sin","cos","tan","sqrt","log"))
-        if has_alg_cue and not has_prog_name:
+        has_infix_op = any(op in line for op in ("+", "-", "*", "/", "^"))
+        if (has_alg_cue or has_infix_op) and not has_prog_name:
             try:
                 val = eval_infix(line, self.env)
                 if val is not None:
                     self.stack.append(float(val) if isinstance(val, (int, float)) else val)
                 self.last_result = val
+                if isinstance(val, (int, float)):
+                    self.lastx = float(val)
+                    self.env["lastx"] = self.lastx
                 return val
             except Exception:
-                pass  # fallthrough to rpn
+                pass  # fallthrough to rpn (e.g. real RPN containing operators as words)
 
         # Build rough toks for classification (for direct manip)
         toks = []
         for part in parts:
             if part in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over",
                         "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev",
-                        "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^"):
+                        "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^",
+                        "abs", "lastx", "LASTX", "last_x") or part in _FUNC_NAMES:
                 toks.append(part)
             else:
                 try:
@@ -148,7 +168,7 @@ class CalcREPL:
 
         has_floats = any(isinstance(t, (int, float)) for t in toks)
         pure_manip = (not has_floats) and all(
-            isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev")
+            isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x")
             for t in toks if isinstance(t, str)
         )
         is_data_only = all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks) if toks else False
@@ -156,6 +176,9 @@ class CalcREPL:
             try:
                 self._execute_visible_rpn_words(toks)
                 self.last_result = self.stack[-1] if self.stack else None
+                if isinstance(self.last_result, (int, float)):
+                    self.lastx = float(self.last_result)
+                    self.env["lastx"] = self.lastx
                 return self.last_result
             except Exception:
                 pass
@@ -180,6 +203,8 @@ class CalcREPL:
                     else:
                         self.stack.append(val)
             self.last_result = val
+            if isinstance(val, (int, float)):
+                self.env["lastx"] = float(val)
             return val
         except Exception as e_rpn:
             if "empty stack at end" in str(e_rpn):
@@ -191,11 +216,14 @@ class CalcREPL:
                 if val is not None:
                     self.stack.append(float(val) if isinstance(val, (int, float)) else val)
                 self.last_result = val
+                if isinstance(val, (int, float)):
+                    self.lastx = float(val)
+                    self.env["lastx"] = self.lastx
                 return val
             except Exception as e2:
                 raise ValueError(f"enter failed (tried rpn then infix): {e_rpn} / {e2}") from e_rpn
 
-    def _execute_visible_rpn_words(self, toks: List[Any]) -> None:
+    def _execute_visible_rpn_words(self, toks):
         """Direct manip on self.stack + env for pure stack words / sto/rcl / len/stats / neg / EVAL run."""
         # nums-only or data list: collect/push as single list entry *only if 2+ nums* (so "1 2 3 4" -> list for stats; bare "42" or "7" stays scalar)
         if toks and all(_is_number(t) or isinstance(t, (list, tuple)) for t in toks):
@@ -249,6 +277,11 @@ class CalcREPL:
                 if not isinstance(name, str):
                     raise ValueError("sto target must be name")
                 self.env[name] = val
+                if isinstance(name, str) and name.lower() in ("lastx", "last_x"):
+                    if _is_number(val):
+                        self.lastx = float(val)
+                    else:
+                        self.lastx = val
                 i += 2
                 continue
             if op in ("rcl", "recall"):
@@ -289,6 +322,27 @@ class CalcREPL:
                 self.stack.append(-float(a))
                 i += 1
                 continue
+            if op in ("lastx", "LASTX", "last_x"):
+                # push the dedicated LASTx (pre-op X); works for pure "lastx" line too
+                self.stack.append(self.lastx)
+                i += 1
+                continue
+            if op in ("sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan"):
+                if not self.stack: raise ValueError("rpn stack underflow")
+                a = self.stack.pop()
+                if op == "sin": self.stack.append(sin(float(a)))
+                elif op == "cos": self.stack.append(cos(float(a)))
+                elif op == "tan": self.stack.append(tan(float(a)))
+                elif op == "sqrt": self.stack.append(sqrt(float(a)))
+                elif op == "log": self.stack.append(log(float(a)))
+                elif op == "log10": self.stack.append(log10(float(a)))
+                elif op == "exp": self.stack.append(exp(float(a)))
+                elif op in ("fabs", "abs"): self.stack.append(fabs(float(a)))
+                elif op == "asin": self.stack.append(asin(float(a)))
+                elif op == "acos": self.stack.append(acos(float(a)))
+                elif op == "atan": self.stack.append(atan(float(a)))
+                i += 1
+                continue
             if op in ("run", "eval", "xeq", "call", "EVAL"):
                 if not self.stack: raise ValueError("rpn stack underflow for eval")
                 p = self.stack.pop()
@@ -308,7 +362,11 @@ class CalcREPL:
                 continue
             i += 1
 
-    def _resolve_for_visible(self, name: str) -> Any:
+    def _resolve_for_visible(self, name):
+        lname = name.lower()
+        if lname in ("lastx", "last_x", "last"):
+            # dedicated HP LASTx register (lift-captured prior X); takes precedence for classic feel
+            return self.lastx
         if name in self.env:
             return self.env[name]
         import math as _m
@@ -317,15 +375,15 @@ class CalcREPL:
             return pre[name]
         raise ValueError(f"undefined variable: {name}")
 
-    def _build_smart_tokens(self, line: str) -> List[Any]:
+    def _build_smart_tokens(self, line):
         """Tokenize rpn text, turning [ ... ] into embedded list tokens (for stats + prog bodies)."""
         parts = [p for p in line.strip().split() if p]
-        toks: List[Any] = []
+        toks = []
         i = 0
         while i < len(parts):
             p = parts[i]
             if p == "[":
-                lst: List[Any] = []
+                lst = []
                 i += 1
                 while i < len(parts) and parts[i] != "]":
                     pp = parts[i].strip().strip(",").strip("'\"")
@@ -337,7 +395,7 @@ class CalcREPL:
                 toks.append(lst)
                 continue
             pc = p.strip(",").strip("'\"")
-            if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^"):
+            if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^", "abs", "lastx", "LASTX", "last_x") or pc in _FUNC_NAMES:
                 toks.append(pc)
             else:
                 try: toks.append(float(pc))
@@ -349,7 +407,7 @@ class CalcREPL:
                 nm = toks[ii+1]; st = toks[ii+2]; toks[ii+1]=st; toks[ii+2]=nm; break
         return toks
 
-    def _eval_rpn_text(self, line: str) -> Any:
+    def _eval_rpn_text(self, line):
         toks = self._build_smart_tokens(line)
         if not toks: return None
         list_ops = ("sum","mean","stdev","stats_sum","stats_mean","stats_stdev","len","size")
@@ -362,7 +420,7 @@ class CalcREPL:
             toks.append(op)
         return eval_rpn(toks, self.env)
 
-    def _maybe_make_prog_from_text(self, line: str) -> Any:
+    def _maybe_make_prog_from_text(self, line):
         toks = self._build_smart_tokens(line)
         for ii in range(len(toks)-2):
             v = toks[ii]
@@ -381,7 +439,7 @@ class CalcREPL:
                         return None
         return None
 
-    def _handle_dot(self, line: str) -> Any:
+    def _handle_dot(self, line):
         parts = line.split(None, 1)
         cmd = parts[0].lower()
         arg = parts[1] if len(parts) > 1 else ""
@@ -425,6 +483,8 @@ class CalcREPL:
                 root = find_root(fspec, a, b, env=self.env)
                 self.stack.append(root)
                 self.last_result = root
+                if isinstance(root, (int, float)):
+                    self.env["lastx"] = float(root)
                 print(f"root ~ {self._fmt(root)}  (pushed to stack; env may have side-effects)")
                 return root
             except Exception as e:
@@ -448,18 +508,19 @@ class CalcREPL:
         print(f"unknown cmd {cmd}  (try .help)")
         return None
 
-    def _help_text(self) -> str:
+    def _help_text(self):
         return (
             "SuperCalc.OG REPL (phase5 inc1)\n"
             "  algebraic: 2+3*sin(pi/2)   |   2^3 + sqrt(9)\n"
             "  rpn/stack:  2 3 + dup *    |   rcl x 2 *   |   dup drop swap over\n"
             "  sto/rcl:    5 sto x        |   rcl x\n"
+            "  lastx/abs:  2+3  lastx *    |   -4 abs     (HP LASTx = prior X before cmd; abs on stack)\n"
             "  progs:      .prog dbl 2 *  then  3 rcl dbl run\n"
             "  cmds: .s .stack .v .vars .plot <f> .solve <f> <a> <b> .prog <n> <body...> .demo .clear .help\n"
             "  solve/plot observe 'x' and sto side-effects (RPL)\n"
         )
 
-    def batch_run(self, lines: List[str], echo: bool = False) -> List[Any]:
+    def batch_run(self, lines, echo=False):
         """Feed multiple lines (for tests/demos). Returns list of enter() results."""
         results = []
         for ln in lines:
@@ -474,12 +535,18 @@ class CalcREPL:
                     print(f"!! {e}")
         return results
 
-    def _run_internal_demo(self) -> str:
+    def _run_internal_demo(self):
         """Scripted tour used by .demo and run_demo(). Returns summary string."""
         out = []
         # 1. basic infix + stack
         self.enter("2 + 3 * 4")
         out.append("infix: 2+3*4 => " + self._fmt(self.stack[-1]))
+
+        # lastx (HP): after result, entering new cmd lifts prior X into lastx; "lastx" pushes it
+        self.enter("lastx")
+        out.append("lastx after infix (pre-lift): " + self._fmt(self.stack[-1]))
+        self.enter("-5 abs")
+        out.append("abs(-5): " + self._fmt(self.stack[-1]))
 
         # 2. list data + stats (Phase4) -- push list object (text [] literals not in parser scope)
         self.stack.append([1.0, 2.0, 3.0, 4.0])
@@ -514,11 +581,11 @@ class CalcREPL:
         print(summary)
         return summary
 
-    def __repr__(self) -> str:
+    def __repr__(self):
         return f"<CalcREPL stack={len(self.stack)} vars={len(self.env)}>"
 
 
-def run_demo() -> None:
+def run_demo():
     """Run the built-in demo tour (exercises expr + prog + solver + stats + plot)."""
     r = CalcREPL()
     print("=== SuperCalc.OG Phase 5 REPL demo ===")
@@ -527,7 +594,7 @@ def run_demo() -> None:
     print(r.show_stack("final demo stack"))
 
 
-def batch_run_demo_lines(lines: List[str], echo: bool = True) -> List[Any]:
+def batch_run_demo_lines(lines, echo=True):
     """Convenience for external tests."""
     r = CalcREPL()
     return r.batch_run(lines, echo=echo)

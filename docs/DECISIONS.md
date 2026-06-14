@@ -360,3 +360,12 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 **Rationale**: Small slice; avoids inventing distribution/packaging before REPL itself is proven. Matches "start populating" without overbuilding. Future inc can add __main__.py, sd persistence, or a frozen module hook.
 
 **Date**: 2026-06 Phase 5 inc1 (attempt 1)
+
+### Phase 5 inc1 polish: RPN math funcs in REPL + lastx + mp/apps skeleton
+**Decision**: 
+- Extended CalcREPL _build_smart_tokens + rough tok classification (and pure path decision) to treat _FUNC_NAMES ("sin" etc) as ops not bare vars. Added explicit cases in _execute_visible_rpn_words for 1-arg unaries (sin/cos/.../atan) that pop/apply from the visible repl stack (hybrid leaf) + push. This makes both "pi 2 / sin" (one-line via eval_rpn) and stepwise "pi 2 /" then "sin" (lone word after value) work naturally.
+- Added lastx (and last alias): _resolve_for_visible special-cases it to return last_result (HP spirit); after every scalar-producing enter (infix/rpn/dot solve/_execute results) we set env["lastx"] = val so rcl/lastx in rpn text and bare name resolve work via existing machinery. Updated help/demo + dedicated test coverage.
+- Created mp/apps/__init__.py (doc + __all__) to mark "apps surface begins" per Phase 5 overall criteria while keeping REPL primary and zero logic.
+- Retained the guarded-typing import pattern (if micropython: stubs else from typing) in solver + calc_repl as hygiene (device compat, noted Phase4 debt).
+**Rationale**: Directly advances two Phase 5 overall criteria items ("Richer integration: ... lastx, more HP words"; "Full apps surface begins in mp/apps") in a small verifiable slice on top of the CalcREPL foundations. RPN func support closes the practical gap where core expr supported "sin" in rpn text but REPL driver did not surface it for mixed entry (tokenizer + visible dispatch). lastx is classic HP, trivial to add given we already tracked last_result, zero debt. All via public prior APIs (hybrid, eval_rpn, resolve paths); no core changes, no C, offline. Tests + full suite green; matches "host first", "thin boundary", "HP spirit".
+**Date**: 2026-06 Phase 5 inc1 (this attempt)

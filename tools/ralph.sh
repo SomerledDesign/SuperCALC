@@ -480,14 +480,21 @@ if [[ ! -f "$CLAUDEQA_FILE" ]]; then
   exit 1
 fi
 
-# Clean transient prior auditor report ONLY for full unattended loop runs.
+# Clean transient prior auditor report ONLY for full unattended loop runs *when no manual verdict report is present*.
 # Subcommands (status, complete-phase, etc) already returned via the early intercept above.
 # This prevents `ralph.sh status` (or record-hardware-verification) from deleting claude_report.txt
 # and losing the last review/clearance (the bug reported: unconditional git checkout at top level).
+# We now also protect a pre-existing claude_report.txt that already contains a verdict (from the
+# reliable manual VS Code path after complete-phase). The early check inside run_claude_qa will
+# then use it without re-invoking the fragile CLI and without clobbering the human-produced report.
 # Old rate-limit/partial/error text will not pollute a *new* loop's "previous auditor report" or
 # cause dirty-tree surprises (report is gitignored/untracked anyway).
-git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
-log "Cleared prior claude_report.txt for fresh loop run."
+if [[ -f claude_report.txt ]] && tail -c 3000 claude_report.txt 2>/dev/null | grep -qiE 'NEEDS WORK - DO NOT ADVANCE|CLEARED TO CONTINUE|PHASE COMPLETE - CLEARED TO ADVANCE'; then
+  log "Preserving existing claude_report.txt with verdict (manual VS Code / complete-phase path)."
+else
+  git checkout -- claude_report.txt 2>/dev/null || rm -f claude_report.txt 2>/dev/null || true
+  log "Cleared prior claude_report.txt for fresh loop run."
+fi
 
 MAX_RETRIES=3
 
@@ -584,6 +591,15 @@ run_claude_qa() {
   local phase="$1"
   log "Running ${AUDITOR} (auditor) — Phase ${phase}..."
 
+  # If a usable report already exists (from a manual VS Code / full IDE review
+  # using the copy-paste prompt printed by complete-phase), just use it.
+  # This is the *reliable* path. We do not want to overwrite it by re-invoking
+  # the fragile one-shot CLI auditor.
+  if phase_cleared || ([[ -s claude_report.txt ]] && tail -20 claude_report.txt | grep -qiE 'APPROVED|NEEDS WORK|Final Verdict|CLEARED TO'); then
+    ok "Existing claude_report.txt already contains a review + verdict/clearance (manual VS Code path). Using it without re-invoking the CLI auditor."
+    return 0
+  fi
+
   # Lean prompt: tell the auditor to read the actual files from the workspace using its tools.
   # This avoids embedding the entire ClaudeQA.md + huge context every time.
   # Phase-aware ls (prefers the handoff for *this* phase) + explicit Read of LOOP/PHASES.
@@ -601,7 +617,6 @@ Handoff for this increment:
 
 Produce the FULL structured Ralph Loop QA Review report (use the exact format from ClaudeQA.md).
 Write the complete report to claude_report.txt (overwrite the file).
-**Also print the full report text to stdout** so it is captured even if your file-write tool has issues.
 
 At the very end of claude_report.txt (on its own line) output exactly one of:
 CLEARED TO CONTINUE
@@ -635,15 +650,20 @@ Also print a short one-line summary to stdout at the end."
       ;;
   esac
 
-  # Run with a reasonable timeout. Note: the prompt tells the auditor to write
-  # the report to claude_report.txt itself (via its tools). We also capture stdout.
-  # The CLI may exit non-zero even when the model successfully wrote a full
-  # structured report (especially in "Claude Code" agentic CLIs vs. rich IDE sessions).
-  # We therefore do a post-mortem check for a usable report + clearance line.
-  echo "[ralph] Invoking auditor: ${cmd[*]} (timeout 300s, output >> claude_report.txt)"
+  # Run with a reasonable timeout. The agent is instructed to Write the report
+  # to claude_report.txt via its own tools (the reliable path).
+  # We do *not* redirect the CLI's own stdout into the report file (that was
+  # corrupting the Write-tool output with tool-call noise + duplicate report text).
+  # We also capture the *real* exit code (the previous `if ! cmd; then rc=$?` form
+  # always saw 0 due to bash `!` negation).
+  # The CLI/subprocess path for full agentic reviews is known to be fragile
+  # (non-TTY, timeout, one-shot limitations). The reliable path is the copy-paste
+  # prompt printed by complete-phase, run inside a full VS Code Claude session,
+  # then `./tools/ralph.sh status` (or re-invoke) to pick up the written report.
+  echo "[ralph] Invoking auditor: ${cmd[*]} (timeout 900s; agent should Write to claude_report.txt)"
   local claude_rc=0
-  if ! timeout 300 "${cmd[@]}" >> claude_report.txt 2>&1; then
-    claude_rc=$?
+  timeout 900 "${cmd[@]}" 2>&1 || claude_rc=$?
+  if [[ $claude_rc -ne 0 ]]; then
     echo "[ERROR] Local $AUDITOR review exited with rc=$claude_rc (timeout or CLI error) on Phase ${phase}." >> claude_report.txt
     warn "Auditor CLI exited rc=$claude_rc on Phase ${phase} (common with agentic claude CLI one-shot vs. full IDE session)."
   fi

@@ -22,6 +22,8 @@ Offline-first. RPL spirit preserved (visible stack, first-class progs, side effe
 
 Future incs: richer ui/ (graph viewport using base picocalcdisplay), mp/apps/ implementations,
 SD persistence for progs/vars, keyboard macros, etc.
+
+Phase 5 inc1 extension: CalcREPL now includes LASTx/abs (HP spirit); mp/apps/ skeleton begun (solver_app).
 """
 from .calc_repl import CalcREPL, run_demo, batch_run_demo_lines
 

@@ -24,11 +24,11 @@ Public:
 Thin: solver owns iteration + convergence; expr/hybrid own eval.
 """
 
-from __future__ import annotations
-from typing import Any, Optional, Dict, Union, List
-
-import sys
 import os
+import sys
+
+# No typing / __future__ annotations (Phase 5 NEEDS WORK blocker).
+# Device (MicroPython) cannot import typing; annotations dropped per auditor.
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
@@ -36,18 +36,15 @@ if ROOT not in sys.path:
 from mp.lang.expr import eval_infix, eval_rpn
 from mp.lang.prog import is_program, run_prog
 
-Number = Union[int, float]
-FSpec = Union[str, List[Any], Any]  # str | rpn-list | Program
-
 def find_root(
-    f: FSpec,
-    a: Number,
-    b: Number,
+    f,
+    a,
+    b,
     *,
-    tol: float = 1e-9,
-    maxiter: int = 60,
-    env: Optional[Dict[str, Any]] = None,
-) -> float:
+    tol=1e-9,
+    maxiter=60,
+    env=None,
+):
     """
     Find x in [a,b] approx where f(x) ~ 0 using secant (safeguarded).
     Returns the root approximation.
@@ -59,7 +56,7 @@ def find_root(
     # Use caller's env (if passed) so sto side-effects during root search are visible after return (RPL spirit)
     # Matches cartesian_sample behavior for Program bodies.
 
-    def _eval(xval: float) -> float:
+    def _eval(xval):
         env["x"] = float(xval)
         if isinstance(f, str):
             return float(eval_infix(f, env))
