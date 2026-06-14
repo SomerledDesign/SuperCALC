@@ -318,6 +318,22 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 
 **Date**: 2026-06 Phase 4 inc1 (attempt 1)
 
+## 2026-06 (Phase 5 inc1 — REPL + UI Integration & Packaging Foundations; inc1 + next slice)
+
+### LASTX (and abs) as REPL-layer HP registers/words
+**Decision**: LASTx implemented as dedicated self.lastx in CalcREPL (mp/ui/calc_repl.py) with: pre-command lift (capture current numeric top before the line's ops run, classic "X before command"), rpn visible word ("lastx" / "LASTX" / "last_x" push it in direct _execute path and via resolve), sto lastx special-cased to also write the dedicated register (in addition to env), mirror self.lastx <-> env['lastx'] on updates and lifts so that infix uses ("lastx + 1"), rcl lastx, and prog bodies that ref lastx via env all see consistent value. "abs" wired (already in func dispatch; ensured in pure_manip/visible lists + execute coverage). lastx also synced post-result in infix/rpn paths for "last answer" ergonomics.
+
+**Rationale**: Delivers the "richer integration: ... history, lastx, more HP words" called out in Phase 5 overall success criteria and PHASES inc1 polish note, without any change to core expr/prog/hybrid/solver (thin boundary preserved; lastx is pure orchestration/UI concern in this slice). Using lift + mirror gives immediate authentic HP LASTx feel in the unified driver (mixed alg + rpn) while keeping side-effect stories (solver x, prog sto) working exactly as before. abs is small obvious HP word addition for the same REPL surface. Future full VM (phase2+) or C register file can promote LASTx if profiling/UX shows value; REPL layer is correct place for inc1. Matches "Small, verifiable slices" + "RPL spirit".
+
+**Date**: 2026-06 Phase 5 inc1 (next slice / attempt 1)
+
+### mp/apps/ package + solver_app as first built-in app surface
+**Decision**: Created mp/apps/__init__.py (package doc) and mp/apps/solver_app.py (SolverApp class + solve_text helper). The helpers are thin wrappers over mp.lib.solver.find_root (supporting str/ rpn / Program f, env, repl-bound auto stack push + lastx sync). SolverApp is first-class (storable via env/sto like Program), repl-aware, and importable for use from CalcREPL, batch, or user code. Exercised in extended test_repl (import + bound solve + direct). No dot-cmd surface or menu yet.
+
+**Rationale**: Satisfies Phase 5 "Full apps surface begins in mp/apps/ (e.g. solver app, stats summary) while REPL remains primary." + packaging foundations goal. Keeps REPL as the interactive heart; apps are reusable building blocks (RPL "tools" you can sto and call). Reuses existing public solver contract exactly (no duplication, side effects preserved). .gitkeep in apps/ replaced by real content. Sets pattern for future apps (stats_app, unit converter stub, etc) in same phase or inc2 without contract change. Matches "thin + reuse", "documentation is part of the work", and "start populating mp/ui/ and mp/apps/".
+
+**Date**: 2026-06 Phase 5 inc1 (next slice)
+
 ### Phase 4 inc1 follow-on: first-class list length via rpn "len"/"size"
 **Decision**: Added "len" and "size" (aliases) as RPN ops in expr._execute_rpn_body (and eval_rpn_str recognition). They pop a list (or tuple) data value from the (MPy) stack and push its float length (error on non-list). Works for direct rpn tokens, via eval_rpn_str, and inside Program bodies (with sto/rcl of lists and of the len result). No change to C (list data is MPy-side; C stats reduce iterables passed from MPy). Added dedicated host test exercising len+arith, prog+sto+len side-effect observation.
 **Rationale**:
