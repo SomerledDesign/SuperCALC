@@ -55,3 +55,13 @@ programs/my_secrets/
 # macOS
 **/.DS_Store
 supercalc.og.uf2*
+
+# Ralph Loop / unattended automation transients (produced by tools/ralph.sh)
+claude_report.txt
+.ralph/
+ralph_live.log
+.last_ralph_pid
+*.log
+
+# Note: handoffs/ are intentionally tracked as the audit history of the loop.
+# The ralph script filters them from dirty checks.
