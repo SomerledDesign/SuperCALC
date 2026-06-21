@@ -43,7 +43,8 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 - [x] PGR.md (implementer guide) + ClaudeQA.md (reviewer guide)
 - [x] `tools/ralph.sh` (bash orchestrator using local grok CLI + local claude CLI) + LOOP_STATE.json
 - [x] Base firmware decision + bring-up instructions finalized (LofiFren recommended) — see DECISIONS.md + BRINGUP.md
-- [ ] First hardware smoke test + dashboard confirmation by user (requires human on real PicoCalc + Pico 2 W)
+- [x] Phase 0 HW smoke script + host harness (`examples/hw_smoke_phase0.py`, `tests/test_phase0_hw_smoke.py`, BRINGUP steps) — runnable on device; human must confirm PASS on real hardware
+- [ ] First hardware smoke test + dashboard confirmation by user (requires human on real PicoCalc + Pico 2 W; run smoke script then `ralph record-hardware-verification`)
 - [x] Minimal custom C module skeleton proven to build and be callable from MPy (hybrid proof) — src/math/picocalc_math.c + micropython.cmake + mp/lib/hybrid.py + host harness + .gitkeeps for full src/mp layout + improved ralph.sh status + build wrapper
 
 **Success Criteria**:
@@ -52,7 +53,7 @@ Only after Claude approval (or explicit human override) do we advance the phase 
 - User has confirmed base firmware + dashboard works on real hardware. [ ] pending human verification (use `./tools/ralph.sh record-hardware-verification "..."` after real PicoCalc smoke)
 - First hybrid extension path demonstrated. [x] C module with float math + sin/sqrt (Phase 0), extended in Phase 1 inc1. Host `tests/test_hybrid.py` green on fallback; structure ready for USER_C_MODULES build.
 
-**Current Status**: Phase 0 inc1 (first attempt): ralph automation extended for HW record gate + Phase 0 current set. Hybrid skeleton + host harness present and green. Awaiting hardware smoke on real PicoCalc (human step; LOOP_STATE last_completed_phase: -1, hardware_verified:false until `record-hardware-verification` run post real-device confirm). See handoffs/ for prior Phase 0 attempts. Per PGR, work scoped only to Phase 0 (no Phase1+ code changes in this inc).
+**Current Status**: Phase 0 inc1 (attempt 1): ralph automation (record-hardware-verification, set-phase, list-handoffs) + hybrid skeleton + host harness green. Added device smoke script (`examples/hw_smoke_phase0.py`) + host test (`tests/test_phase0_hw_smoke.py`) + BRINGUP human-gate steps. Awaiting real PicoCalc smoke PASS + `record-hardware-verification` (LOOP_STATE last_completed_phase: -1 until then). Scoped strictly to Phase 0.
 
 ## Phase 1 — Core Math Engine & Expression System
 
@@ -103,7 +104,7 @@ See previous detailed outline in this document (or the version before the unatte
 
 ---
 
-**Current Phase (per LOOP_STATE.json)**: 7 — CAS Surface & Richer Symbolic (inc1: thin ... + docs; inc2 in progress: dispatch fix + Symbolic(str) wrapper + help note for solve RPN convention + RPN word test cov for diff/solve + nits closed per auditor + docs)
+**Current Phase (per LOOP_STATE.json)**: 0 — Foundation & Scaffolding (inc1: HW smoke script + list-handoffs + host verify; human HW gate pending)
 
 Update this file's phase sections and status when the automation indicates a gate has been passed. (Phase 0-4 host complete with QA; hardware smoke backlog (Phase0-4) pending human on real PicoCalc + UF2. Phase 5 inc1 host cleared by auditor (with noted Major debt); Phase 6 inc1: the required refactor per QA carry-forward before Phase 5 can be declared complete or new CAS/UI work. HW verification still human gate for all prior + this.)
 

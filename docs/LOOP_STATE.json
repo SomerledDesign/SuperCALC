@@ -1,6 +1,6 @@
 {
-  "current_phase": 7,
-  "status": "awaiting_qa",
+  "current_phase": 0,
+  "status": "in_progress",
   "last_completed_phase": -1,
   "phase_history": [
     {
@@ -8,28 +8,18 @@
       "started": "2026-06-12",
       "status": "in_progress",
       "description": "Foundation & Scaffolding + Unattended Loop setup (inc1)",
-      "last_update": "2026-06-12",
+      "last_update": "2026-06-21",
       "notes": [
         "First attempt per PGR: phase-0-inc1 focused on automation completeness for HW record + status per Phase 0 success criteria.",
         "Hybrid C skeleton (minimal proof) + cmake + hybrid.py + test_hybrid present (host fallback green).",
-        "Handoffs from prior history preserved; loop reconciled for Phase 0 inc1 work only (no future scope).",
-        "record-hardware-verification subcommand implemented + tested (exercised with TEST note; human will invoke on real PicoCalc after dashboard/REPL/hybrid smoke to flip verified + last_completed=0).",
-        "Handoff generated: handoffs/phase-0-20260612-231211-review-request.md",
-        "Handoff generated: handoffs/phase-4-20260613-001320-review-request.md",
-        "Handoff generated: handoffs/phase-4-20260613-004410-review-request.md",
-        "Handoff generated: handoffs/phase-4-20260613-005324-review-request.md",
-        "Handoff generated: handoffs/phase-5-20260613-011047-review-request.md",
-        "Handoff generated: handoffs/phase-5-20260613-230802-review-request.md",
-        "Handoff generated: handoffs/phase-5-20260613-231053-review-request.md",
-        "Handoff generated: handoffs/phase-5-20260613-232044-review-request.md",
-        "Handoff generated: handoffs/phase-5-20260613-233234-review-request.md",
-        "Handoff generated: handoffs/phase-7-20260613-234523-review-request.md",
-        "Handoff generated: handoffs/phase-7-20260614-094231-review-request.md"
+        "record-hardware-verification + set-phase + list-handoffs in ralph.sh.",
+        "inc1: examples/hw_smoke_phase0.py + tests/test_phase0_hw_smoke.py + BRINGUP human-gate steps.",
+        "HW smoke pending human on real PicoCalc (run smoke script then record-hardware-verification)."
       ]
     }
   ],
   "last_handoff": "handoffs/phase-7-20260614-094231-review-request.md",
   "hardware_verified": false,
-  "notes": "Phase 0 inc1 (first attempt): set current_phase=0 per task; added ralph record-hardware-verification + set-phase support for pending HW gate + automation success criteria. Hybrid proof structure in place (C src/math + mp/lib/hybrid + tests). HW smoke pending human confirmation on real PicoCalc (use ralph record-hardware-verification after dashboard/REPL/hybrid smoke).; complete-phase at 20260612-231211; set-phase 4 (was 0); complete-phase at 20260613-001320; complete-phase at 20260613-004410; complete-phase at 20260613-005324; set-phase 5 (was 4); complete-phase at 20260613-011047; complete-phase at 20260613-230802; complete-phase at 20260613-231053; complete-phase at 20260613-232044; complete-phase at 20260613-233234; set-phase 6 (was 5); qa-cleared-and-advanced via status (handoff-phase 5 -> 7) at 2026-06-13T23:45:00-04:00; complete-phase at 20260613-234523; set-phase 7 (was 8); complete-phase at 20260614-094231",
+  "notes": "Phase 0 inc1 attempt 1: HW smoke script + host harness + list-handoffs + docs. Hybrid proof green on host. Human must run examples/hw_smoke_phase0.py on device and record-hardware-verification to complete Phase 0 gate.",
   "hardware_note": ""
 }

@@ -104,12 +104,33 @@ In the base port's build system (they use Docker + `micropython.cmake` + `USER_C
 - Display and WiFi sometimes share SPI resources in these ports; when we add WiFi features later we will pause display refresh (already documented in the base ports).
 - Always safely eject or use the dashboard's eject button before unplugging if you're doing heavy file work.
 
+## Phase 0 Hardware Smoke (Human Gate)
+
+After flashing the LofiFren UF2 and confirming the dashboard connects:
+
+1. Push `mp/` and `examples/hw_smoke_phase0.py` to the device (dashboard sync or mpremote).
+2. From the device REPL:
+
+```python
+import hw_smoke_phase0
+hw_smoke_phase0.run()
+```
+
+3. Expect `PHASE 0 SMOKE: PASS` (hybrid checks required; `picocalc_math` optional on stock UF2).
+4. On the host, record verification:
+
+```bash
+./tools/ralph.sh record-hardware-verification "Dashboard + REPL + hybrid smoke PASS on Pico 2 W"
+```
+
+Host-side validation (no device needed): `python3 tests/test_phase0_hw_smoke.py`
+
 ## Next for SuperCalc.OG
 
-Once the base is running and the dashboard works:
+Once the base is running, the dashboard works, and Phase 0 smoke passes:
 
-1. We will create a minimal "hello from C" custom module (even if it just returns a constant) so we prove the hybrid extension path.
-2. Then we start Phase 1 math kernel work.
+1. Build a custom UF2 with `src/math/` via `tools/build_supercalc.sh` (see comments inside) to exercise the native C path.
+2. Phase 1+ math/kernel work continues on the hybrid boundary established in Phase 0.
 
 ---
 

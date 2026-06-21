@@ -88,6 +88,17 @@ Record significant architectural, technical, and scope decisions with rationale 
 
 **Date**: 2026-06 (Phase 0 inc1, first attempt)
 
+### Phase 0 inc1 — device HW smoke script + list-handoffs
+**Decision**: Added `examples/hw_smoke_phase0.py` (MicroPython-safe REPL smoke: sys/gc/hybrid/picocalc_math optional/picocalc/SD) + `tests/test_phase0_hw_smoke.py` (host validates script + runs hybrid checks). Extended `ralph.sh` with `list-handoffs [N]` (closes prior QA gap vs PGR.md). BRINGUP.md documents the human gate flow ending in `record-hardware-verification`.
+
+**Rationale**:
+- Closes the last implementable Phase 0 gap before the human-only HW confirmation: a concrete, repeatable smoke the user runs on real PicoCalc after dashboard/REPL bring-up.
+- Host harness proves the script structure and hybrid dependency without hardware; same fallback path the stock UF2 uses until custom C UF2 is built.
+- `list-handoffs` aligns ralph.sh with PGR.md documented subcommands.
+- No Phase 1+ scope; thin reuse of existing hybrid.py only.
+
+**Date**: 2026-06 (Phase 0 inc1, Ralph loop attempt 1)
+
 ## 2026-06 (Phase 0 QA fixes carried into Phase 1 inc1)
 
 ### Loop Automation Hygiene (ralph.sh)

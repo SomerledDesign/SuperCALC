@@ -180,6 +180,20 @@ PYEOF
       ok "Current phase set to ${newp}. (Follow PGR: only on declared phase; record in DECISIONS if significant.)"
       exit 0
       ;;
+    list-handoffs)
+      # List timestamped handoff artifacts (PGR.md documents this subcommand).
+      local n="${1:-10}"
+      if ! [[ "$n" =~ ^[0-9]+$ ]]; then
+        n=10
+      fi
+      echo "Recent handoffs (newest first, limit $n):"
+      if [[ -d handoffs ]]; then
+        ls -1t handoffs/phase-*-review-request.md 2>/dev/null | head -n "$n" || echo "  (none)"
+      else
+        echo "  (handoffs/ directory missing)"
+      fi
+      exit 0
+      ;;
     record-hardware-verification)
       # Phase 0 critical: record human-performed smoke on real hardware (PicoCalc + Pico 2 W)
       # Per PGR + PHASES success: "User has confirmed base firmware + dashboard works on real hardware."
@@ -383,6 +397,7 @@ Usage:
   ./tools/ralph.sh set-phase N                         # (rare) explicitly set current_phase (PGR: intentional only)
   ./tools/ralph.sh complete-phase "short description of increment"
   ./tools/ralph.sh record-hardware-verification "note" # Phase 0+: record human-confirmed smoke on real PicoCalc
+  ./tools/ralph.sh list-handoffs [N]                   # list recent handoffs/ artifacts (default 10)
   ./tools/ralph.sh help
 
 complete-phase: checks git clean, writes handoffs/phase-N-...-review-request.md,
@@ -459,7 +474,7 @@ done
 # (Now safe to run after -a options have been consumed.)
 if [[ $# -gt 0 ]]; then
   first_arg="$1"
-  if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" || "$first_arg" == "set-phase" || "$first_arg" == "record-hardware-verification" ]]; then
+  if [[ "$first_arg" == "status" || "$first_arg" == "--status" || "$first_arg" == "help" || "$first_arg" == "--help" || "$first_arg" == "-h" || "$first_arg" == "complete-phase" || "$first_arg" == "set-phase" || "$first_arg" == "record-hardware-verification" || "$first_arg" == "list-handoffs" ]]; then
     handle_subcommand "$@"
     # handle_subcommand always exits for these
   fi

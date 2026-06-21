@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 7 inc2 — CAS dispatch fix + Symbolic wrapper + help note for solve RPN convention + diff/solve RPN test cov + nits closed (per prior auditor). Full tests+demo green on host. Ralph Loop (phase 7 per set; LOOP_STATE may lag until complete). HW backlog (0-7) pending real PicoCalc + UF2. See docs/PHASES.md + handoffs/.
+**Status**: Phase 0 inc1 — Foundation & scaffolding: hybrid proof + ralph automation + device HW smoke script (`examples/hw_smoke_phase0.py`) + host harness. Human HW gate pending (flash LofiFren UF2, run smoke, `ralph record-hardware-verification`). See docs/PHASES.md + docs/BRINGUP.md.
 
 ## Vision
 
