@@ -501,3 +501,12 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 
 **Date**: 2026-06 Phase 7 inc2 (addressing prior auditor report)
 
+## 2026-06 (Phase 7 inc1 completion — prog/sto coverage + HW smoke + dedicated tests)
+
+### Dedicated CAS test harness + Phase 7 device smoke script
+**Decision**: Added `tests/test_cas.py` (module-level CAS + RPN + prog-body + Symbolic sto/rcl) and `examples/hw_smoke_phase7.py` with host harness `tests/test_phase7_hw_smoke.py` (mirrors Phase 0 smoke pattern). Extended `test_repl_cas_surface_stub_and_rpn()` with prog-body CAS (`.prog simp rcl eq simplify` + `rcl simp run`) and Symbolic sto/rcl roundtrip. BRINGUP.md documents Phase 7 human gate steps.
+
+**Rationale**: Closes inc1 success-criteria gaps ("inside stored/run Program", symbolic sto/rcl/use) that were claimed but not fully tested; provides runnable device verification path before eigenmath UF2 exercise; keeps thin boundary (no C, no new syntax). Offline host green on stub path.
+
+**Date**: 2026-06 Phase 7 inc1 (attempt 1 completion slice)
+

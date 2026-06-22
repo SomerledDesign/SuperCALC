@@ -125,6 +125,25 @@ hw_smoke_phase0.run()
 
 Host-side validation (no device needed): `python3 tests/test_phase0_hw_smoke.py`
 
+## Phase 7 Hardware Smoke (CAS — Human Gate)
+
+After pushing `mp/` and `examples/hw_smoke_phase7.py` to the device:
+
+```python
+import hw_smoke_phase7
+hw_smoke_phase7.run()
+```
+
+Expect `PHASE 7 SMOKE: PASS` (stub CAS is OK on stock UF2; eigenmath builds exercise the live path).
+
+Host-side validation: `python3 tests/test_phase7_hw_smoke.py`
+
+Record when confirmed on hardware:
+
+```bash
+./tools/ralph.sh record-hardware-verification "Phase 7 CAS smoke OK on PicoCalc"
+```
+
 ## Next for SuperCalc.OG
 
 Once the base is running, the dashboard works, and Phase 0 smoke passes:

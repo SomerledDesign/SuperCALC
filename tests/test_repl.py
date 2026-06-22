@@ -343,7 +343,23 @@ def test_repl_cas_surface_stub_and_rpn():
     assert "has_cas" in inf
     # Symbolic is str subclass (RPL first-class + future detectability)
     assert issubclass(Symbolic, str)
-    print("OK cas surface (stub + Symbolic + all RPN words: simplify/diff/solve 2arg/1arg + .cas + delegation)")
+    # prog body CAS (inc1 success: symbolic in stored/run Program)
+    r4 = CalcREPL()
+    r4.env["eq"] = "x+x"
+    r4.enter(".prog simp rcl eq simplify")
+    r4.enter("rcl simp run")
+    assert isinstance(r4.stack[-1], (str, Symbolic))
+    assert "stub:simplify" in str(r4.stack[-1]) or not _has
+    # Symbolic sto/rcl roundtrip via REPL (first-class symbolic on live stack)
+    r5 = CalcREPL()
+    r5.stack.append("x^2")
+    sym = r5.enter("simplify")
+    r5.enter("sto symvar")
+    got = r5.enter("rcl symvar")
+    assert isinstance(got, (str, Symbolic))
+    assert str(got) == str(sym)
+    assert r5.env["symvar"] == sym
+    print("OK cas surface (stub + Symbolic + all RPN words + prog body + sto/rcl + .cas + delegation)")
 
 
 if __name__ == "__main__":

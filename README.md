@@ -4,7 +4,7 @@
 
 **Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 0 inc1 — Foundation & scaffolding: hybrid proof + ralph automation + device HW smoke script (`examples/hw_smoke_phase0.py`) + host harness. Human HW gate pending (flash LofiFren UF2, run smoke, `ralph record-hardware-verification`). See docs/PHASES.md + docs/BRINGUP.md.
+**Status**: Phase 7 inc1 — CAS surface (thin eigenmath/stub via `mp/lib/cas.py`, RPN + REPL + prog integration, Symbolic wrapper). Host tests green (`tests/test_cas.py`, `tests/test_repl.py`). Device smoke: `examples/hw_smoke_phase7.py` + `tests/test_phase7_hw_smoke.py`. Human HW gate pending for phases 0–7. See docs/PHASES.md + docs/BRINGUP.md.
 
 ## Vision
 
