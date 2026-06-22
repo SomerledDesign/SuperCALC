@@ -1,6 +1,6 @@
 {
   "current_phase": 7,
-  "status": "in_progress",
+  "status": "awaiting_qa",
   "last_completed_phase": -1,
   "phase_history": [
     {
@@ -26,12 +26,13 @@
       "notes": [
         "inc1: thin CAS via mp/lib/cas.py + expr RPN words + REPL .cas + Symbolic wrapper (inc2 prior work retained).",
         "inc1 completion: test_cas.py + prog/sto/rcl coverage + hw_smoke_phase7.py + host harness.",
-        "Host tests + demo green; HW smoke pending human on PicoCalc after UF2."
+        "Host tests + demo green; HW smoke pending human on PicoCalc after UF2.",
+        "Handoff generated: handoffs/phase-7-20260622-012747-review-request.md"
       ]
     }
   ],
-  "last_handoff": "handoffs/phase-7-20260614-094231-review-request.md",
+  "last_handoff": "handoffs/phase-7-20260622-012747-review-request.md",
   "hardware_verified": false,
-  "notes": "Phase 7 inc1 attempt 1: CAS surface host-complete with dedicated tests + phase7 HW smoke script. Backlog HW for phases 0-6 + this. Human runs examples/hw_smoke_phase7.py on device then record-hardware-verification.",
+  "notes": "Phase 7 inc1 attempt 1: CAS surface host-complete with dedicated tests + phase7 HW smoke script. Backlog HW for phases 0-6 + this. Human runs examples/hw_smoke_phase7.py on device then record-hardware-verification.; complete-phase at 20260622-012747",
   "hardware_note": ""
 }

@@ -251,6 +251,15 @@ def _execute_rpn_body(tokens, stack, env):
             stack.append(tok)  # push Program as first-class data value (sto, pass, rcl target etc)
             i += 1
             continue
+        if isinstance(tok, str):
+            # bare str literal (not a word) -> first-class string data value on stack (Phase 7 CAS: 'expr' simplify etc)
+            # only push if not a recognized op word (ops fallthrough for dispatch incl cas/num/stack)
+            if tok not in _CAS_OPS and tok not in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^", "pow", "add", "sub", "mul", "div", "sin", "cos", "tan", "sqrt", "log", "log10", "exp", "fabs", "abs", "asin", "acos", "atan", "atan2", "lastx", "LASTX", "last_x", "last") and tok not in EVAL_ALIASES and tok not in _FUNC_NAMES:
+                stack.append(tok)
+                i += 1
+                continue
+            # else: recognized word -> treat as op below
+            op = tok
         if not isinstance(tok, str):
             raise ValueError("bad rpn token")
         op = tok

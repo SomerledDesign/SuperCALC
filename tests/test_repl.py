@@ -338,6 +338,12 @@ def test_repl_cas_surface_stub_and_rpn():
     assert isinstance(c2, (str, Symbolic)) and "stub:solve" in str(c2)
     c3 = r2.enter(".cas diff x^3 x")
     assert isinstance(c3, (str, Symbolic)) and "stub:diff" in str(c3)
+    # direct enter with quoted str literal for CAS (user-facing 'expr' word syntax)
+    r4 = CalcREPL()
+    c4 = r4.enter("'x+x' simplify")
+    assert isinstance(c4, (str, Symbolic)) and "stub:simplify" in str(c4)
+    c5 = r4.enter("'x^2-2' 'x' solve")
+    assert isinstance(c5, (str, Symbolic)) and "stub:solve" in str(c5)
     # info visible
     inf = _cinfo()
     assert "has_cas" in inf

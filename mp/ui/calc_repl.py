@@ -76,6 +76,22 @@ def _is_var_token(tok):
     return isinstance(tok, (list, tuple)) and len(tok) == 2 and tok[0] == "var" and isinstance(tok[1], str)
 
 
+def _parse_token(part):
+    """Parse one raw part: quoted 'str'/'str' -> inner str (for CAS symbolic data etc),
+    else float or ('var', name). Phase 7: enables 'expr' simplify etc in direct REPL entry.
+    """
+    p = (part or "").strip().strip(",")
+    if not p:
+        return None
+    # quoted literal (single or double) for first-class string data (CAS expr, future use)
+    if len(p) >= 2 and p[0] == p[-1] and p[0] in ("'", '"'):
+        return p[1:-1]
+    try:
+        return float(p)
+    except ValueError:
+        return ("var", p)
+
+
 class CalcREPL:
     """
     Thin orchestration driver (target <=200 LOC post Phase 6 refactor).
@@ -179,18 +195,20 @@ class CalcREPL:
                         "abs", "lastx", "LASTX", "last_x", "last", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff") or part in _FUNC_NAMES:
                 toks.append(part)
             else:
-                try:
-                    toks.append(float(part))
-                except ValueError:
-                    toks.append(("var", part))
+                t = _parse_token(part)
+                if t is not None:
+                    toks.append(t)
 
         has_floats = any(isinstance(t, (int, float)) for t in toks)
+        _MANIP_WORDS = ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x","last","simplify","cas_simplify","solve","cas_solve","diff","cas_diff")
         pure_manip = (not has_floats) and all(
-            isinstance(t, str) and t in ("dup","drop","swap","over","neg","chs","sto","store","->","rcl","recall","run","eval","xeq","call","EVAL","len","size","sum","mean","stdev","stats_sum","stats_mean","stats_stdev","abs","lastx","LASTX","last_x","last","simplify","cas_simplify","solve","cas_solve","diff","cas_diff")
+            isinstance(t, str) and t in _MANIP_WORDS
             for t in toks if isinstance(t, str)
         )
         is_data_only = all(_is_number(t) or (isinstance(t, (list, tuple)) and not _is_var_token(t)) for t in toks) if toks else False
-        if pure_manip or is_data_only or not has_floats:
+        has_nonword_str = any(isinstance(t, str) and t not in _MANIP_WORDS and t not in _FUNC_NAMES for t in toks)
+        word_only = not has_floats and all(isinstance(t, str) for t in toks)
+        if pure_manip or is_data_only or (word_only and not has_nonword_str):
             try:
                 self._execute_visible_rpn_words(toks)
                 self.last_result = self.stack[-1] if self.stack else None
@@ -313,12 +331,13 @@ class CalcREPL:
                 if i < len(parts) and parts[i] == "]": i += 1
                 toks.append(lst)
                 continue
-            pc = p.strip(",").strip("'\"")
+            pc = p.strip(",").strip()
             if pc in ("sto", "store", "->", "rcl", "recall", "dup", "drop", "swap", "over", "neg", "chs", "sum", "mean", "stdev", "stats_sum", "stats_mean", "stats_stdev", "len", "size", "run", "eval", "xeq", "call", "EVAL", "+", "-", "*", "/", "^", "abs", "lastx", "LASTX", "last_x", "last", "simplify", "cas_simplify", "solve", "cas_solve", "diff", "cas_diff") or pc in _FUNC_NAMES:
                 toks.append(pc)
             else:
-                try: toks.append(float(pc))
-                except ValueError: toks.append(("var", pc))
+                t = _parse_token(p)
+                if t is not None:
+                    toks.append(t)
             i += 1
         # normalize list name sto -> list sto name for engine
         for ii in range(len(toks)-2):
@@ -428,37 +447,46 @@ class CalcREPL:
             return p
         if cmd == ".cas":
             # Phase 7: thin CAS surface via dot (e.g. .cas simplify <expr> or bare .cas <expr> for implicit simplify)
-            parts = [p for p in arg.split()]
-            sub = (parts[0].lower() if parts else "")
-            rest = " ".join(parts[1:]) if len(parts) > 1 else ""
+            # Support info/version/help explicitly; avoid treating them as expr for simplify.
+            dparts = [p for p in arg.split()]
+            sub = (dparts[0].lower() if dparts else "")
+            rest = " ".join(dparts[1:]) if len(dparts) > 1 else ""
             try:
+                if sub in ("info", "version"):
+                    inf = _cas_info()
+                    print("cas info:", inf)
+                    return inf
+                if sub in ("help",):
+                    print("cas: simplify|diff|solve <expr> [var]; quoted strings supported in main entry e.g. 'x+x' simplify")
+                    return None
                 if sub in ("simplify", "cas_simplify"):
-                    expr = rest or arg
+                    expr = rest or (arg if sub == "" else "")
                     res = _cas_simplify(expr)
                     self.stack.append(res)
                     print(f"cas: {res}")
                     return res
                 if sub in ("solve", "cas_solve"):
-                    toks = (rest or "").split() or ([arg] if arg else [])
-                    eq = toks[0] if toks else arg
+                    toks = (rest or "").split() or ([arg] if arg and sub == "" else [])
+                    eq = toks[0] if toks else (arg if not sub else "")
                     var = toks[1] if len(toks) > 1 else "x"
                     res = _cas_solve(eq, var)
                     self.stack.append(res)
                     print(f"cas: {res}")
                     return res
                 if sub in ("diff", "cas_diff"):
-                    toks = (rest or "").split() or ([arg] if arg else [])
-                    arg0 = toks[0] if toks else arg
+                    toks = (rest or "").split() or ([arg] if arg and sub == "" else [])
+                    arg0 = toks[0] if toks else (arg if not sub else "")
                     v = toks[1] if len(toks) > 1 else "x"
                     res = _cas_diff(arg0, v)
                     self.stack.append(res)
                     print(f"cas: {res}")
                     return res
                 # default: implicit simplify for ".cas <expr>" (no recognized verb as first word)
-                res = _cas_simplify(arg)
-                self.stack.append(res)
-                print(f"cas: {res}")
-                return res
+                if arg:
+                    res = _cas_simplify(arg)
+                    self.stack.append(res)
+                    print(f"cas: {res}")
+                    return res
             except Exception as e:
                 print(f"cas error: {e}")
             return None
@@ -537,10 +565,13 @@ class CalcREPL:
         out.append("hybrid C math: " + str(HAS_C_MATH))
 
         # 7. CAS (Phase 7 inc2): exercises thin cas layer + Symbolic results (eigenmath or stub on host)
-        # Use stack-push + bare cas word (matches how lists/stats are exercised in demo; one-line quoted-str syntax not in scope)
+        # Quoted literal + word now supported: e.g. enter("'x+x' simplify")
         self.stack.append("x+x")
         cres = self.enter("simplify")
         out.append("cas simplify stub: " + str(cres)[:40])
+        # also demonstrate direct quoted syntax (now supported)
+        qcas = self.enter("'x^2' diff")
+        out.append("cas quoted diff: " + str(qcas)[:40])
         try:
             cinfo = _cas_info()
             out.append("cas info has=" + str(cinfo.get("has_cas")))

@@ -510,3 +510,10 @@ These changes were made *before* any Phase 3 functional code changes or re-hando
 
 **Date**: 2026-06 Phase 7 inc1 (attempt 1 completion slice)
 
+### String literal data for CAS + word dispatch routing (REPL/expr)
+**Decision**: Added _parse_token (quoted '..' / ".." -> bare str data) in calc_repl; extended expr _execute_rpn_body with early str-nonword push as first-class data (before treating bare str as op word); refined CalcREPL visible-vs-eval path selection (word_only + has_nonword_str guard using MANIP+FUNC+CAS sets) so lone func/cas words use live-stack visible apply for stepwise, while one-line "'expr' casop" uses fresh-eval result append. Extended cas words/funcs to known sets.
+
+**Rationale**: Makes documented CAS entry "'x+x' simplify" and .cas info etc actually work end-to-end from user REPL lines (previously only via direct stack.append bypass or dot without info subcmd). Preserves all prior stepwise lastx/func/cas + one-line numeric behavior. Small, targeted, no scope creep, keeps thin reuse of execute body. Enables RPL-style symbolic as data value on stack for progs/REPL.
+
+**Date**: 2026-06 Phase 7 inc1 (fixes for first-attempt working surface)
+
