@@ -2,9 +2,9 @@
 
 **Target Platform**: ClockworkPi PicoCalc (v2.0 board) with Raspberry Pi **Pico 2 W** (RP2350)
 
-**Project Root**: `~/GROK/iWasCodeing/PicoCalc/SuperCalc.OG/`
+**Project Root**: `~/Library/CloudStorage/Dropbox/Penus/iWasCoding/PicoCalc/SuperCalc.OG/`
 
-**Status**: Phase 7 inc1 — CAS surface (thin eigenmath/stub via `mp/lib/cas.py`, RPN + REPL + prog integration, Symbolic wrapper). Host tests green (`tests/test_cas.py`, `tests/test_repl.py`). Device smoke: `examples/hw_smoke_phase7.py` + `tests/test_phase7_hw_smoke.py`. Human HW gate pending for phases 0–7. See docs/PHASES.md + docs/BRINGUP.md.
+**Status**: Phase 7 — host tests green; MicroPython bring-up on PicoCalc Pico 2 W (USB REPL + IPS boot banner). Push after on-device confirm.
 
 ## Vision
 
