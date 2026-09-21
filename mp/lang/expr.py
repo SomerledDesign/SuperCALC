@@ -116,7 +116,7 @@ def to_rpn(infix):
         if c.isalpha() or c == "_":
             # ident or func name
             j = i
-            while j < n and (s[j].isalnum() or s[j] == "_"):
+            while j < n and (s[j].isalpha() or s[j].isdigit() or s[j] == "_"):  # MPy: no str.isalnum
                 j += 1
             name = s[i:j]
             i = j

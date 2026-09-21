@@ -330,13 +330,14 @@ def stats_sum(xs):
     xs = _ensure_list(xs)
     if not xs:
         raise ValueError("stats empty input")
-    # use fsum for better accuracy on host; validate numerics for error parity with C
+    # fsum on CPython host; plain sum on MicroPython (no math.fsum)
     import math as _m
     try:
         vals = [float(x) for x in xs]
     except Exception:
         raise ValueError("stats expected numeric iterable")
-    return _m.fsum(vals)
+    _fsum = getattr(_m, "fsum", None)
+    return _fsum(vals) if _fsum else float(sum(vals))
 
 def stats_mean(xs):
     if HAS_C_MATH:
@@ -349,7 +350,9 @@ def stats_mean(xs):
         vals = [float(x) for x in xs]
     except Exception:
         raise ValueError("stats expected numeric iterable")
-    return _m.fsum(vals) / len(vals)
+    _fsum = getattr(_m, "fsum", None)
+    total = _fsum(vals) if _fsum else float(sum(vals))
+    return total / len(vals)
 
 def stats_stdev(xs):
     if HAS_C_MATH:

@@ -26,9 +26,12 @@ On device: same imports after UF2; callable from base REPL or CalcREPL lines via
 import sys
 import os
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+# Host CPython has os.path; MicroPython does not — skip path bootstrap on device
+# (package already lives under /mp on the PicoCalc filesystem).
+if hasattr(os, "path"):
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
 
 from mp.lib.solver import find_root
 from mp.lang.prog import is_program

@@ -48,9 +48,12 @@ import sys
 # MicroPython-safe: no typing imports / __future__ annotations anywhere in import graph
 # (expr/prog/etc purged of runtime annots). Phase 5 QA MPy blocker fully addressed.
 # Project root on path for standalone (matches other mp/ modules + tests).
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
+# Host CPython has os.path; MicroPython does not — skip path bootstrap on device
+# (package already lives under /mp on the PicoCalc filesystem).
+if hasattr(os, "path"):
+    ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
 
 from mp.lang.expr import eval_infix, eval_rpn_str, eval_rpn, HAS_C_MATH, execute_rpn_body
 from mp.lang.prog import make_prog, is_program
