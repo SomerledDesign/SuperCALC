@@ -1,0 +1,380 @@
+diff --git a/picocalcdisplay/picocalcdisplay.c b/picocalcdisplay/picocalcdisplay.c
+index 5b5a33e..a3c5868 100644
+--- a/picocalcdisplay/picocalcdisplay.c
++++ b/picocalcdisplay/picocalcdisplay.c
+@@ -16,6 +16,7 @@
+ #include "pico/multicore.h"
+ #include "hardware/sync.h"
+ #include "font6x8e500.h"
++#include "py/mpthread.h"
+ 
+ 
+ #define    SWRESET   0x01
+@@ -44,6 +45,25 @@ uint32_t core1_stack[CORE1_STACK_SIZE];
+ static uint st_dma;
+ static uint8_t *frameBuff;
+ 
++/* SuperCalc patch:
++ *  - frameBuff is a raw pointer into a Python buffer read by core 1; keep that object
++ *    alive as a GC root and drop it on soft reset.
++ *  - Stop core 1 cooperatively (it parks itself between frames, outside any SDK spin
++ *    lock) instead of resetting it mid-transfer, and stop it on soft reset before the
++ *    GC heap is re-initialised.
++ *  - Tell MicroPython core 1 is busy (core1_entry marker): its flash code only locks
++ *    out core 1 during flash erase/program when core1_entry != NULL (pico-sdk #2201
++ *    workaround in rp2_flash.c), so without this core 1 kept executing from flash
++ *    while LittleFS wrote to it. It also makes _thread refuse to clobber core 1.
++ *  - Claim the display DMA channel once; init() used to claim a new channel on every
++ *    call (every boot.py run, i.e. every soft reset) until claim() panicked. */
++MP_REGISTER_ROOT_POINTER(mp_obj_t picocalcdisplay_fb_obj);
++static bool st_dma_claimed = false;
++static volatile bool core1_running = false;
++static volatile bool core1_stop_req = false;
++static volatile bool core1_parked = false;
++void picocalcdisplay_soft_reset(void);
++
+ static volatile bool autoUpdate;
+ static volatile bool skipUpdate;  // When true, Core 1 skips framebuffer push
+ static uint16_t lineBuffA[64];
+@@ -123,13 +143,76 @@ void core1_main() {
+   // causing a hard fault / reset on any filesystem write.
+   multicore_lockout_victim_init();
+   while (1) {
+-    if (autoUpdate && !skipUpdate){
++    if (core1_stop_req) {          /* SuperCalc patch: park between frames */
++      core1_parked = true;
++      while (1) {
++        __wfe();
++      }
++    }
++    if (autoUpdate && !skipUpdate && frameBuff != NULL){
+       pColorUpdate(frameBuff,DISPLAY_HEIGHT*DISPLAY_WIDTH, LUT);
+     }
+     sleep_ms(5);
+   }
+ }
+ 
++#if MICROPY_PY_THREAD
++static void *pd_core1_marker(void *arg) {
++  return arg;
++}
++#endif
++
++static void pd_wait_dma(void) {
++  if (st_dma_claimed) {
++    while (dma_channel_is_busy(st_dma)) {
++      tight_loop_contents();
++    }
++  }
++}
++
++/* Stop core 1 if we launched it: ask it to park, wait (bounded), then reset it. */
++static void pd_core1_stop(void) {
++  if (core1_running) {
++    core1_stop_req = true;
++    __sev();
++    absolute_time_t until = make_timeout_time_ms(500);
++    while (!core1_parked && !time_reached(until)) {
++      tight_loop_contents();
++    }
++    multicore_reset_core1();
++    core1_running = false;
++    #if MICROPY_PY_THREAD
++    if (core1_entry == pd_core1_marker) {
++      core1_entry = NULL;
++    }
++    #endif
++  }
++  core1_stop_req = false;
++  core1_parked = false;
++  pd_wait_dma();
++}
++
++static void pd_core1_start(void) {
++  pd_core1_stop();
++  #if MICROPY_PY_THREAD
++  if (core1_entry != NULL) {
++    mp_raise_msg(&mp_type_OSError, MP_ERROR_TEXT("core1 in use"));
++  }
++  core1_entry = pd_core1_marker;
++  #endif
++  core1_running = true;
++  multicore_launch_core1_with_stack(core1_main, core1_stack, CORE1_STACK_SIZE);
++}
++
++/* Called via MICROPY_BOARD_START_SOFT_RESET before the GC heap is re-initialised. */
++void picocalcdisplay_soft_reset(void) {
++  autoUpdate = false;
++  skipUpdate = true;
++  pd_core1_stop();
++  frameBuff = NULL;
++  MP_STATE_VM(picocalcdisplay_fb_obj) = MP_OBJ_NULL;
++}
++
+ 
+ void setpixelRGB565(int32_t x, int32_t y,uint16_t color){
+   ((uint16_t *)frameBuff)[x + DISPLAY_WIDTH*y]= color;
+@@ -165,12 +248,30 @@ void setpixelLUT1(int32_t x, int32_t y,uint16_t color){
+ 
+ static mp_obj_t pd_init(mp_obj_t fb_obj, mp_obj_t color_type, mp_obj_t autoR){
+     mp_buffer_info_t buf_info;
+-    mp_get_buffer_raise(fb_obj, &buf_info, MP_BUFFER_READ);
++    mp_get_buffer_raise(fb_obj, &buf_info, MP_BUFFER_WRITE);
++    int32_t colorType = mp_obj_get_int(color_type);
++    {   /* SuperCalc patch: the buffer must cover the whole 320x320 frame */
++      size_t px = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT, need;
++      switch (colorType) {
++        case 1: need = px * 2; break;
++        case 2: need = px / 2; break;
++        case 4: need = px / 8; break;
++        case 5: need = px / 4; break;
++        case 6: need = px; break;
++        default: mp_raise_ValueError(MP_ERROR_TEXT("unsupported color type"));
++      }
++      if (buf_info.len < need) {
++        mp_raise_ValueError(MP_ERROR_TEXT("framebuffer too small"));
++      }
++    }
++    /* SuperCalc patch: stop core 1 before switching buffers, then switch pointer + root */
++    autoUpdate = false;
++    pd_core1_stop();
+     frameBuff=(uint8_t *)buf_info.buf;
++    MP_STATE_VM(picocalcdisplay_fb_obj) = fb_obj;
+     autoUpdate = mp_obj_is_true(autoR);
+     skipUpdate = false;
+ 
+-    int32_t colorType = mp_obj_get_int(color_type);
+     currentTextY = 8;
+     currentTextX = 6;
+     currentTextTable=font6x8tt;
+@@ -213,7 +314,10 @@ static mp_obj_t pd_init(mp_obj_t fb_obj, mp_obj_t color_type, mp_obj_t autoR){
+     gpio_put(RST_PIN, 0);
+     gpio_set_dir(RST_PIN, GPIO_OUT);
+ //DMA init
+-    st_dma = dma_claim_unused_channel(true);
++    if (!st_dma_claimed) {  /* SuperCalc patch: claim once, reuse on re-init */
++      st_dma = dma_claim_unused_channel(true);
++      st_dma_claimed = true;
++    }
+     dma_channel_config config = dma_channel_get_default_config(st_dma);
+     channel_config_set_transfer_data_size(&config, DMA_SIZE_8);
+     channel_config_set_bswap(&config, false);
+@@ -260,8 +364,7 @@ static mp_obj_t pd_init(mp_obj_t fb_obj, mp_obj_t color_type, mp_obj_t autoR){
+     //pColorUpdate(frameBuff,DISPLAY_HEIGHT*DISPLAY_WIDTH, LUT);
+     //sleep_ms(10);
+     if (autoUpdate==true){
+-      multicore_reset_core1();
+-      multicore_launch_core1_with_stack(core1_main, core1_stack, CORE1_STACK_SIZE);
++      pd_core1_start();  /* SuperCalc patch */
+     }
+     //multicore_launch_core1_with_stack(core1_main, core1_stack, CORE1_STACK_SIZE);
+ 
+@@ -273,6 +376,9 @@ static MP_DEFINE_CONST_FUN_OBJ_3(pd_init_obj, pd_init);
+ static mp_obj_t drawTxt6x8(mp_uint_t n_args, const mp_obj_t *args){
+   // extract arguments
+ 
++  if (frameBuff == NULL) {  /* SuperCalc patch */
++    return mp_const_none;
++  }
+   const char *str = mp_obj_str_get_str(args[0]);
+   int x0 = mp_obj_get_int(args[1]);
+   int y0 = mp_obj_get_int(args[2]);
+@@ -318,8 +424,14 @@ static mp_obj_t setLUT(mp_obj_t LUT_obj){
+     mp_buffer_info_t buf_info;
+     mp_get_buffer_raise(LUT_obj, &buf_info, MP_BUFFER_READ);
+     size_t bufLen = buf_info.len;
+-    
+-    memcpy(LUT,buf_info.buf,bufLen* sizeof(uint16_t));
++    /* SuperCalc patch: buf_info.len is already in bytes; the original copied
++     * len*sizeof(uint16_t) bytes, reading past the caller's buffer and, for a
++     * 256-entry table, writing past LUT[]. Copy at most the bytes given and at most
++     * sizeof(LUT). */
++    if (bufLen > sizeof(LUT)) {
++        bufLen = sizeof(LUT);
++    }
++    memcpy(LUT,buf_info.buf,bufLen);
+     
+     return mp_const_true;
+ }
+@@ -327,8 +439,7 @@ static MP_DEFINE_CONST_FUN_OBJ_1(setLUT_obj, setLUT);
+ 
+ static mp_obj_t startAutoUpdate(void){
+   autoUpdate = true;
+-  multicore_reset_core1();
+-  multicore_launch_core1_with_stack(core1_main, core1_stack, CORE1_STACK_SIZE);
++  pd_core1_start();  /* SuperCalc patch */
+   return mp_const_true;
+ }
+ static MP_DEFINE_CONST_FUN_OBJ_0(startAutoUpdate_obj, startAutoUpdate);
+@@ -336,11 +447,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(startAutoUpdate_obj, startAutoUpdate);
+ 
+ static mp_obj_t stopAutoUpdate(void){
+   autoUpdate = false;
+-  multicore_reset_core1();
+-  //wait until possible dma is done
+-  while (dma_channel_is_busy(st_dma)){
+-    tight_loop_contents(); 
+-  }
++  pd_core1_stop();  /* SuperCalc patch: park core 1, then wait for DMA */
+   return mp_const_true;
+ }
+ static MP_DEFINE_CONST_FUN_OBJ_0(stopAutoUpdate_obj, stopAutoUpdate);
+@@ -384,6 +491,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(pd_beginDraw_obj, pd_beginDraw);
+ // the complete frame on its next cycle. In manual mode, pushes directly.
+ static mp_obj_t pd_update(){
+     if (autoUpdate==false){
++      if (frameBuff == NULL) return mp_const_false;  /* SuperCalc patch */
+       pColorUpdate(frameBuff,DISPLAY_HEIGHT*DISPLAY_WIDTH, LUT);
+     } else {
+       // Signal Core 1: frame is ready, resume pushing
+diff --git a/picosampler/picosampler.c b/picosampler/picosampler.c
+index 43aca62..4e91661 100644
+--- a/picosampler/picosampler.c
++++ b/picosampler/picosampler.c
+@@ -429,6 +429,20 @@ static mp_obj_t ps_deinit(void) {
+ }
+ static MP_DEFINE_CONST_FUN_OBJ_0(ps_deinit_obj, ps_deinit);
+ 
++/* SuperCalc patch: on soft reset stop the DMA/IRQ audio engine and forget the
++ * registered samples. Their buffers live in the GC heap, which is about to be
++ * re-initialised; the ISR would otherwise keep reading them and the sample table
++ * would keep its old entries (filling up after a few soft resets). */
++void picosampler_soft_reset(void) {
++    ps_deinit();
++    for (int i = 0; i < MAX_SAMPLES; i++) {
++        samples[i].data = NULL;
++        samples[i].len = 0;
++        MP_STATE_PORT(picosampler_keepalive)[i] = MP_OBJ_NULL;
++    }
++    n_samples = 0;
++}
++
+ static const mp_rom_map_elem_t picosampler_globals_table[] = {
+     { MP_ROM_QSTR(MP_QSTR___name__),    MP_ROM_QSTR(MP_QSTR_picosampler) },
+     { MP_ROM_QSTR(MP_QSTR_init),        MP_ROM_PTR(&ps_init_obj) },
+diff --git a/vtterminal/vtterminal.c b/vtterminal/vtterminal.c
+index 688ca17..53d74d1 100644
+--- a/vtterminal/vtterminal.c
++++ b/vtterminal/vtterminal.c
+@@ -144,6 +144,21 @@ int16_t nVals = 0;
+ int16_t vals[10] = {0};
+ static repeating_timer_t cursor_timer;
+ 
++/* SuperCalc patch: fb is a raw pointer into a Python buffer that the 250 ms cursor
++ * timer (IRQ context) writes into. Keep the buffer object alive as a GC root, only
++ * run the timer while a buffer is attached, and detach on soft reset / deinit(), so
++ * the timer can never scribble on freed or re-initialised GC heap. */
++MP_REGISTER_ROOT_POINTER(mp_obj_t vtterminal_fb_obj);
++static volatile bool vt_active = false;
++static bool vt_timer_running = false;
++static void vt_stop_timer(void) {
++    if (vt_timer_running) {
++        cancel_repeating_timer(&cursor_timer);
++        vt_timer_running = false;
++    }
++}
++void vtterminal_soft_reset(void);
++
+ 
+ bool dispCursor(repeating_timer_t *rt) ;  
+ 
+@@ -205,6 +220,7 @@ static void cursorForward(int16_t v);
+ static void cursorBackward(int16_t v);
+ 
+ static void setpixel(uint8_t *fb,int32_t x, int32_t y,uint8_t color){
++    if (fb == NULL) return;  /* SuperCalc patch */
+     uint8_t *pixel = &((uint8_t *)fb)[(x + (SC_PIXEL_WIDTH*y))>>1];
+   
+     if (x&0x01) {
+@@ -248,8 +264,17 @@ static  void drawCursor(uint16_t x, uint16_t y) {
+ }
+ 
+ bool dispCursor(repeating_timer_t *rt) {
++    if (!vt_active || fb == NULL)   /* SuperCalc patch: detached, touch nothing */
++      return true;
+     if (escMode != NONE)
+       return true;
++    if (!canShowCursor) {           /* SuperCalc patch: hidden cursor, erase once then idle */
++      if (isShowCursor) {
++        sc_updateChar(p_XP, p_YP);
++        isShowCursor = false;
++      }
++      return true;
++    }
+     sc_updateChar(p_XP, p_YP);  
+     if  (canShowCursor){
+         isShowCursor = !isShowCursor;
+@@ -1408,6 +1433,7 @@ static void unknownSequence(uint8_t m, char c) {
+ 
+ 
+ static void drawTxt6x8(uint8_t *fb,uint8_t c,int x0,int y0, uint8_t color){
++    if (fb == NULL) return;  /* SuperCalc patch */
+   // extract arguments
+     int x;
+     int y;
+@@ -1472,6 +1498,7 @@ static void scroll_framebuffer(uint8_t *fb, int scroll_y1, int scroll_y2, int n,
+ }
+ */
+ static void fill_rect_4bpp(uint8_t *fb,  int x, int y, int w, int h, uint8_t color){
++    if (fb == NULL) return;  /* SuperCalc patch */
+ 
+     int row_bytes = SC_PIXEL_WIDTH >> 1;  
+     uint8_t fill_byte = (color << 4) | (color & 0x0F);
+@@ -1508,23 +1535,43 @@ static void fill_rect_4bpp(uint8_t *fb,  int x, int y, int w, int h, uint8_t col
+ static mp_obj_t vtterminal_init(mp_obj_t fb_obj){
+ 
+     mp_buffer_info_t buf_info;
+-    mp_get_buffer_raise(fb_obj, &buf_info, MP_BUFFER_READ);
++    mp_get_buffer_raise(fb_obj, &buf_info, MP_BUFFER_WRITE);
++    if (buf_info.len < (size_t)(SC_PIXEL_WIDTH * SC_PIXEL_HEIGHT / 2)) {
++        mp_raise_ValueError(MP_ERROR_TEXT("vtterminal buffer must be >= 51200 bytes (320x320 4bpp)"));
++    }
++    /* SuperCalc patch: swap atomically - stop the timer, then switch pointer + GC root */
++    vt_active = false;
++    vt_stop_timer();
+     fb=(uint8_t *)buf_info.buf;
++    MP_STATE_VM(vtterminal_fb_obj) = fb_obj;
+ 
+     currentTextTable=G0TABLE;
+     resetToInitialState();
+     setCursorToHome();
+ 
+-    //init the timer and callback
+-    // Cancel any existing timer before re-adding; soft reset calls
+-    // vtterminal_init() again and without this we leak a timer slot each time.
+-    cancel_repeating_timer(&cursor_timer);
+-    add_repeating_timer_ms(250, dispCursor, NULL, &cursor_timer);
++    vt_active = true;
++    vt_timer_running = add_repeating_timer_ms(250, dispCursor, NULL, &cursor_timer);
+     return mp_const_true;
+ }
+ 
+ static MP_DEFINE_CONST_FUN_OBJ_1(vt_init_obj, vtterminal_init);
+ 
++/* SuperCalc patch: detach from the framebuffer and stop the cursor timer. Called by
++ * vtterminal.deinit() and, via MICROPY_BOARD_START_SOFT_RESET, on every soft reset
++ * before the GC heap is re-initialised. Safe to call any number of times. */
++void vtterminal_soft_reset(void) {
++    vt_active = false;
++    vt_stop_timer();
++    fb = NULL;
++    MP_STATE_VM(vtterminal_fb_obj) = MP_OBJ_NULL;
++}
++
++static mp_obj_t vt_deinit(void) {
++    vtterminal_soft_reset();
++    return mp_const_none;
++}
++static MP_DEFINE_CONST_FUN_OBJ_0(vt_deinit_obj, vt_deinit);
++
+ 
+ 
+ static mp_obj_t vt_read(void){
+@@ -1541,6 +1588,7 @@ static MP_DEFINE_CONST_FUN_OBJ_0(vt_read_obj, vt_read);
+ static const mp_rom_map_elem_t vtterminal_globals_table[] = {
+     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_vtterminal) },
+     { MP_ROM_QSTR(MP_QSTR_init), MP_ROM_PTR(&vt_init_obj) },
++    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&vt_deinit_obj) },  /* SuperCalc patch */
+     { MP_ROM_QSTR(MP_QSTR_read), MP_ROM_PTR(&vt_read_obj) },
+     { MP_ROM_QSTR(MP_QSTR_printChar), MP_ROM_PTR(&vt_printChar_obj)}
+ };

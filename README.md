@@ -131,6 +131,15 @@ Detailed bring-up will be documented in `docs/` as we go.
 
 This is a focused, high-standard personal + collaborative build. All major changes go through the loop.
 
+## License
+
+SuperCALC's own code is released under the [MIT License](LICENSE), Copyright (c) 2026 Kevin R. Murphy (SomerledDesign).
+
+The firmware build pulls in third-party components (MicroPython, the Raspberry Pi Pico SDK, eigenmath, LofiFren's PicoCalc modules and others) that keep their own licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and the full texts in [LICENSES/](LICENSES/).
+
+- **Binary releases are on hold.** No UF2 will be published until zenodante licenses the PicoCalc display/terminal driver (`PicoCalc-micropython-driver`) and the eigenmath MicroPython wrapper (`eigenmath_micropython`), both of which are built into the firmware. UF2 files are not committed to this repository.
+- **Hardware:** the SuperCALC UF2 is for the ClockworkPi PicoCalc with a Raspberry Pi Pico 2 W only. The Wi-Fi/Bluetooth components (cyw43-driver, BTstack) are licensed for use with Raspberry Pi silicon only.
+
 ---
 
 **Buona fortuna e buon lavoro!** Let's make something definitive.

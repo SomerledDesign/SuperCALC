@@ -65,3 +65,12 @@ ralph_live.log
 
 # Note: handoffs/ are intentionally tracked as the audit history of the loop.
 # The ralph script filters them from dirty checks.
+
+# SuperCALC release hygiene: never commit firmware binaries or backups
+build/
+*.uf2
+*.uf2.*
+*.bak
+*.bak-*
+*.orig
+.DS_Store

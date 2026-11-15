@@ -1,0 +1,965 @@
+diff --git a/eheap.c b/eheap.c
+index d61564b..28e8c3c 100644
+--- a/eheap.c
++++ b/eheap.c
+@@ -165,6 +165,20 @@ static void insert_free(block_t *blk) {
+      heap_init_once();
+  }
+  
++ /* SuperCalc patch: detach from the current region so nothing can allocate from a
++  * heap block MicroPython is about to free; e_malloc/e_free become no-ops until init. */
++ void eheap_deinit(void) {
++     initialized = false;
++     heap_base = NULL;
++     heap_end = NULL;
++     heap_total = 0;
++     start_node.next = NULL;
++     start_node.size = 0;
++     end_node = &end_marker;
++     free_bytes = 0;
++     min_free = 0;
++ }
++
+  void* e_malloc(size_t size) {
+      if (size == 0 || !initialized) return NULL;
+  
+diff --git a/eheap.h b/eheap.h
+index 09545cd..7c43c52 100644
+--- a/eheap.h
++++ b/eheap.h
+@@ -3,6 +3,7 @@
+  *  ---------------------------------------------------------------------
+  *  API:
+  *      void   eheap_init(void *buffer, size_t size);
++ void   eheap_deinit(void);
+  *      void*  e_malloc(size_t bytes);
+  *      void   e_free(void *ptr);
+  *      void*  e_realloc(void *ptr, size_t new_size);
+@@ -20,6 +21,7 @@
+  #endif
+  
+  void   eheap_init(void *buffer, size_t size);
++ void   eheap_deinit(void);
+  void*  e_malloc(size_t size);
+  void   e_free(void *ptr);
+  void*  e_realloc(void *ptr, size_t new_size);
+diff --git a/eigenmath.c b/eigenmath.c
+index 80c6c59..60d8026 100644
+--- a/eigenmath.c
++++ b/eigenmath.c
+@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ #include <errno.h>
+ #include "eigenmath.h"
+ #include "eheap.h"
++#include "py/cstack.h"
+ #include "py/obj.h"
+ //#include "py/mpconfig.h"
+ #include "py/misc.h"
+@@ -54,6 +55,14 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ 
+ uint32_t STACKSIZE ;
+ uint32_t MAXATOMS ; // 10,240 atoms
++/* SuperCalc patch: buffers that used to be function-local statics. They point into
++ * the eigenmath heap, so they must be cleared whenever that heap is replaced. */
++static char *mstr_buf;
++static int mstr_len;
++static double *eigvec_D, *eigvec_Q;
++static double *nroots_cr, *nroots_ci;
++void eigenmath_reset_statics(void);
++void eigenmath_deinit(void);
+ 
+ 
+ // MAXBLOCKS * BLOCKSIZE = 20,000,000 atoms
+@@ -84,6 +93,11 @@ uint32_t MAXATOMS ; // 10,240 atoms
+ //              |"mul"  |    |"a"    |    |"b"    |
+ //              |_______|    |_______|    |_______|
+ /**/
++/* SuperCalc patch: a double only needs 4-byte alignment on Cortex-M33 (LDRD/VLDR) and
++ * x86-32; with it the atom is 12 bytes instead of 16 on 32-bit targets, i.e. 33% more
++ * atoms in the same RAM. No effect on 64-bit hosts (pointers keep it at 16). */
++typedef double em_double_t __attribute__((aligned(4)));
++
+ struct atom {
+ 	union {
+ 		struct {
+@@ -102,7 +116,7 @@ struct atom {
+ 			uint32_t *a; // rational number a over b
+ 			uint32_t *b;
+ 		} q;
+-		double d;
++		em_double_t d;  /* SuperCalc patch: 4-byte aligned -> 12-byte atoms on RP2350 */
+ 		char *str;
+ 		struct tensor *tensor;
+ 		struct atom *next;
+@@ -921,18 +935,21 @@ struct atom * get_binding(struct atom *p1);
+ struct atom * get_usrfunc(struct atom *p);
+ void init_symbol_table(void);
+ 
+-void eigenmath_init(uint8_t *pHeap,size_t heapSize){
++#ifndef EM_ATOM_PERMILLE
++#define EM_ATOM_PERMILLE 400  /* share of the eigenmath heap used for the atom pool */
++#endif
++int eigenmath_init(uint8_t *pHeap,size_t heapSize){
++	eigenmath_reset_statics();  /* SuperCalc patch: full re-init, no stale heap pointers */
+ 	eheap_init((void *)pHeap, heapSize);
+ 	uint32_t sizeOfpAtom = sizeof(struct atom *);
+ 	uint32_t sizeOfAtom = sizeof(struct atom);
+ 	//init atom pool
+-	MAXATOMS=((heapSize/sizeOfAtom)*4)/10;
++	MAXATOMS=(uint32_t)(((uint64_t)(heapSize/sizeOfAtom)*EM_ATOM_PERMILLE)/1000);  /* SuperCalc patch: was 40% */
+ 	STACKSIZE=MAXATOMS/12;
+ 	//mp_printf(&mp_plat_print,"heapsize=%d,mem size = %d\n", heapSize,(uint32_t)(sizeof (struct atom) * MAXATOMS));
+ 	mem = e_malloc(sizeof (struct atom) * MAXATOMS);
+-	if (mem == NULL) {
+-		mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("Failed to initialize mem"));
+-		return;
++	if (mem == NULL || MAXATOMS < 2 || STACKSIZE < 1) {
++		return 1;  /* SuperCalc patch: caller cleans up (no raise with half-set globals) */
+ 	}
+ 	init_block(mem);
+ 	stack = (struct atom **)e_malloc(STACKSIZE * sizeOfpAtom);
+@@ -941,9 +958,9 @@ void eigenmath_init(uint8_t *pHeap,size_t heapSize){
+ 	usrfunc = (struct atom **)e_malloc((27 * BUCKETSIZE) * sizeOfpAtom);
+ 	zero = NULL;
+ 	if (stack == NULL || symtab == NULL || binding == NULL || usrfunc == NULL) {
+-		mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("Failed to initialize fixed ram area"));
+-		return;
++		return 2;  /* SuperCalc patch: caller cleans up */
+ 	}
++	return 0;
+ }
+ 
+ 
+@@ -959,6 +976,7 @@ void init_block(struct atom *mem){
+ 	mem[MAXATOMS - 1].u.next = NULL;
+ 	free_list = mem;
+ 	free_count = MAXATOMS;
++	em_min_free_atoms = MAXATOMS;
+ 	alloc_count = 0;
+  // return the first block pointer
+ }
+@@ -980,6 +998,8 @@ alloc_atom(void)
+ 
+ 	free_count--;
+ 	alloc_count++;
++	if (free_count < em_min_free_atoms)  /* SuperCalc patch: watermark for status() */
++		em_min_free_atoms = free_count;
+ 
+ 	return p;
+ }
+@@ -1104,8 +1124,7 @@ char *
+ mstr(uint32_t *u)
+ {
+ 	int i, k, n, r;
+-	static char *buf;
+-	static int len;
++	/* SuperCalc patch: former function statics moved to file scope (reset by eigenmath_reset_statics) */
+ 
+ 	// estimate string length
+ 
+@@ -1117,22 +1136,22 @@ mstr(uint32_t *u)
+ 
+ 	n = 1000 * (n / 1000 + 1);
+ 
+-	if (n > len) {
+-		if (buf)
+-			e_free(buf);
+-		buf = alloc_mem(n);
+-		len = n;
++	if (n > mstr_len) {
++		if (mstr_buf)
++			e_free(mstr_buf);
++		mstr_buf = alloc_mem(n);
++		mstr_len = n;
+ 	}
+ 
+ 	u = mcopy(u);
+ 
+-	k = len - 1;
+-	buf[k] = '\0'; // string terminator
++	k = mstr_len - 1;
++	mstr_buf[k] = '\0'; // string terminator
+ 
+ 	for (;;) {
+ 		r = mdivby1billion(u);
+ 		for (i = 0; i < 9; i++) {
+-			buf[--k] = r % 10 + '0';
++			mstr_buf[--k] = r % 10 + '0';
+ 			r /= 10;
+ 		}
+ 		if (MZERO(u))
+@@ -1143,10 +1162,10 @@ mstr(uint32_t *u)
+ 
+ 	// remove leading zeroes
+ 
+-	while (buf[k] == '0' && buf[k + 1])
++	while (mstr_buf[k] == '0' && mstr_buf[k + 1])
+ 		k++;
+ 
+-	return buf + k;
++	return mstr_buf + k;
+ }
+ 
+ // returns remainder, quotient returned in u
+@@ -1984,6 +2003,7 @@ void
+ evalf(void)
+ {
+ 	struct atom *p;
++	em_stack_check();  /* SuperCalc patch */
+ 	eval_level++;
+ 	p = pop();
+ 	push(p); // make visible to garbage collector
+@@ -5032,7 +5052,7 @@ void
+ eval_eigenvec(struct atom *p1)
+ {
+ 	int i, j, n;
+-	static double *D, *Q;
++	/* SuperCalc patch: former function statics moved to file scope (reset by eigenmath_reset_statics) */
+ 
+ 	push(cadr(p1));
+ 	evalf();
+@@ -5054,41 +5074,41 @@ eval_eigenvec(struct atom *p1)
+ 			if (fabs(p1->u.tensor->elem[n * i + j]->u.d - p1->u.tensor->elem[n * j + i]->u.d) > 1e-10)
+ 				stopf("eigenvec");
+ 
+-	if (D)
+-		e_free(D);
+-	if (Q)
+-		e_free(Q);
++	if (eigvec_D)
++		e_free(eigvec_D);
++	if (eigvec_Q)
++		e_free(eigvec_Q);
+ 
+-	D = alloc_mem(n * n * sizeof (double));
+-	Q = alloc_mem(n * n * sizeof (double));
++	eigvec_D = alloc_mem(n * n * sizeof (double));
++	eigvec_Q = alloc_mem(n * n * sizeof (double));
+ 
+-	// initialize D
++	// initialize eigvec_D
+ 
+ 	for (i = 0; i < n; i++) {
+-		D[n * i + i] = p1->u.tensor->elem[n * i + i]->u.d;
++		eigvec_D[n * i + i] = p1->u.tensor->elem[n * i + i]->u.d;
+ 		for (j = i + 1; j < n; j++) {
+-			D[n * i + j] = p1->u.tensor->elem[n * i + j]->u.d;
+-			D[n * j + i] = p1->u.tensor->elem[n * i + j]->u.d;
++			eigvec_D[n * i + j] = p1->u.tensor->elem[n * i + j]->u.d;
++			eigvec_D[n * j + i] = p1->u.tensor->elem[n * i + j]->u.d;
+ 		}
+ 	}
+ 
+-	// initialize Q
++	// initialize eigvec_Q
+ 
+ 	for (i = 0; i < n; i++) {
+-		Q[n * i + i] = 1.0;
++		eigvec_Q[n * i + i] = 1.0;
+ 		for (j = i + 1; j < n; j++) {
+-			Q[n * i + j] = 0.0;
+-			Q[n * j + i] = 0.0;
++			eigvec_Q[n * i + j] = 0.0;
++			eigvec_Q[n * j + i] = 0.0;
+ 		}
+ 	}
+ 
+-	eigenvec(D, Q, n);
++	eigenvec(eigvec_D, eigvec_Q, n);
+ 
+ 	p1 = alloc_matrix(n, n);
+ 
+ 	for (i = 0; i < n; i++) {
+ 		for (j = 0; j < n; j++) {
+-			push_double(Q[n * j + i]); // transpose
++			push_double(eigvec_Q[n * j + i]); // transpose
+ 			p1->u.tensor->elem[n * i + j] = pop();
+ 		}
+ 	}
+@@ -8198,6 +8218,8 @@ integral_search(int h, struct atom *F, const char * const *table, int n)
+ 
+ 	for (i = 0; i < n; i += 3) {
+ 
++		em_reclaim_begin();  /* SuperCalc patch */
++
+ 		scan1((char *)table[i + 0]); // integrand
+ 		I = pop();
+ 
+@@ -8206,6 +8228,8 @@ integral_search(int h, struct atom *F, const char * const *table, int n)
+ 
+ 		if (integral_search_nib(h, F, I, C))
+ 			break;
++
++		em_reclaim_end();  /* SuperCalc patch: free this candidate's garbage */
+ 	}
+ 
+ 	if (i >= n)
+@@ -9709,7 +9733,7 @@ nroots(void)
+ 	int h, i, n;
+ 	struct atom *A, *P, *X, *RE, *IM;
+ 	double ar, ai, d, xr, xi, yr, yi;
+-	static double *cr, *ci;
++	/* SuperCalc patch: former function statics moved to file scope (reset by eigenmath_reset_statics) */
+ 
+ 	X = pop();
+ 	P = pop();
+@@ -9720,13 +9744,13 @@ nroots(void)
+ 
+ 	n = tos - h; // number of coeffs on stack
+ 
+-	if (cr)
+-		e_free(cr);
+-	if (ci)
+-		e_free(ci);
++	if (nroots_cr)
++		e_free(nroots_cr);
++	if (nroots_ci)
++		e_free(nroots_ci);
+ 
+-	cr = alloc_mem(n * sizeof (double));
+-	ci = alloc_mem(n * sizeof (double));
++	nroots_cr = alloc_mem(n * sizeof (double));
++	nroots_ci = alloc_mem(n * sizeof (double));
+ 
+ 	// convert coeffs to floating point
+ 
+@@ -9745,34 +9769,34 @@ nroots(void)
+ 		if (!isdouble(RE) || !isdouble(IM))
+ 			stopf("nroots: coeffs");
+ 
+-		cr[i] = RE->u.d;
+-		ci[i] = IM->u.d;
++		nroots_cr[i] = RE->u.d;
++		nroots_ci[i] = IM->u.d;
+ 	}
+ 
+ 	tos = h; // pop all
+ 
+ 	// divide p(x) by leading coeff
+ 
+-	xr = cr[n - 1];
+-	xi = ci[n - 1];
++	xr = nroots_cr[n - 1];
++	xi = nroots_ci[n - 1];
+ 
+ 	d = xr * xr + xi * xi;
+ 
+ 	for (i = 0; i < n - 1; i++) {
+-		yr = (cr[i] * xr + ci[i] * xi) / d;
+-		yi = (ci[i] * xr - cr[i] * xi) / d;
+-		cr[i] = yr;
+-		ci[i] = yi;
++		yr = (nroots_cr[i] * xr + nroots_ci[i] * xi) / d;
++		yi = (nroots_ci[i] * xr - nroots_cr[i] * xi) / d;
++		nroots_cr[i] = yr;
++		nroots_ci[i] = yi;
+ 	}
+ 
+-	cr[n - 1] = 1.0;
+-	ci[n - 1] = 0.0;
++	nroots_cr[n - 1] = 1.0;
++	nroots_ci[n - 1] = 0.0;
+ 
+ 	// find roots
+ 
+ 	while (n > 1) {
+ 
+-		nfindroot(cr, ci, n, &ar, &ai);
++		nfindroot(nroots_cr, nroots_ci, n, &ar, &ai);
+ 
+ 		if (fabs(ar) < DELTA * fabs(ai))
+ 			ar = 0.0;
+@@ -9790,7 +9814,7 @@ nroots(void)
+ 
+ 		// divide p(x) by x - a
+ 
+-		nreduce(cr, ci, n, ar, ai);
++		nreduce(nroots_cr, nroots_ci, n, ar, ai);
+ 
+ 		// note: leading coeff of p(x) is still 1
+ 
+@@ -16457,6 +16481,89 @@ fmt_putw(uint32_t w)
+ }
+ // automatic variables not visible to the garbage collector are reclaimed
+ 
++/* SuperCalc patch: reclaim the atoms a failed integral-table candidate allocated.
++ * A normal gc() is only safe between top-level evaluations because callers keep atoms
++ * in C locals. Here we only free atoms that were on the free list when the candidate
++ * started (so nothing a caller holds can be freed) and that are now unreachable from
++ * the roots. eigenmath never mutates an older atom to point at a newer one (bindings
++ * go through the root tables), so this is safe. Upstream needs ~1.5x more atoms for
++ * integral() without it. */
++static int em_reclaim_gc_count;
++static int em_reclaim_armed;
++
++void
++em_reclaim_begin(void)
++{
++	int i;
++	struct atom *p;
++	for (i = 0; i < MAXATOMS; i++)
++		mem[i].tag = 0;
++	for (p = free_list; p; p = p->u.next)
++		p->tag = 1;
++	em_reclaim_gc_count = gc_count;
++	em_reclaim_armed = 1;
++}
++
++void
++em_reclaim_end(void)
++{
++	int i;
++	struct atom *p;
++
++	if (!em_reclaim_armed || gc_count != em_reclaim_gc_count)
++		return;  /* a real gc ran meanwhile; tags are not ours */
++	em_reclaim_armed = 0;
++
++	untag(zero);
++	untag(one);
++	untag(minusone);
++	untag(imaginaryunit);
++	for (i = 0; i < tos; i++)
++		untag(stack[i]);
++	for (i = 0; i < 27 * BUCKETSIZE; i++) {
++		untag(symtab[i]);
++		untag(binding[i]);
++		untag(usrfunc[i]);
++	}
++
++	free_list = NULL;
++	free_count = 0;
++	for (i = MAXATOMS - 1; i >= 0; i--) {
++		p = &mem[i];
++		if (p->tag == 0)
++			continue;
++		switch (p->atomtype) {
++			case KSYM:
++				e_free(p->u.ksym.name);
++				ksym_count--;
++				break;
++			case USYM:
++				e_free(p->u.usym.name);
++				usym_count--;
++				break;
++			case RATIONAL:
++				mfree(p->u.q.a);
++				mfree(p->u.q.b);
++				break;
++			case STR:
++				if (p->u.str)
++					e_free(p->u.str);
++				string_count--;
++				break;
++			case TENSOR:
++				e_free(p->u.tensor);
++				tensor_count--;
++				break;
++			default:
++				break; // FREEATOM, CONS, or DOUBLE
++		}
++		p->atomtype = FREEATOM;
++		p->u.next = free_list;
++		free_list = p;
++		free_count++;
++	}
++}
++
+ void
+ gc(void)
+ {
+@@ -16607,6 +16714,32 @@ char strbuf[STRBUFLEN];
+ char *outbuf;
+ int outbuf_index;
+ int outbuf_length;
++/* SuperCalc patch: robustness state */
++int outbuf_oom;           /* output was dropped because the eigenmath heap is full */
++int em_init_failed;       /* symbol table / init script did not fit */
++static int em_initializing;
++static int stop_active;   /* stopf() re-entrancy guard */
++static int em_stopped;    /* previous run() ended in stopf() */
++int em_min_free_atoms;    /* lowest free_count seen since init */
++int em_stack_hwm;         /* deepest C stack use (bytes) seen inside eigenmath */
++
++/* SuperCalc patch: eigenmath recurses in C (evalf, scanner). On the RP2350 the 12 KB C
++ * stack sits directly above the MicroPython GC heap with no guard, so an overflow
++ * silently overwrites the top of the GC heap and the board dies later. Stop the
++ * command cleanly while EM_STACK_RESERVE bytes are still free for stopf()/longjmp. */
++#ifndef EM_STACK_RESERVE
++#define EM_STACK_RESERVE 2048
++#endif
++void em_stack_check(void)
++{
++#if MICROPY_STACK_CHECK
++	size_t u = mp_cstack_usage();
++	if ((int)u > em_stack_hwm)
++		em_stack_hwm = (int)u;
++	if (u + EM_STACK_RESERVE >= (size_t)MP_STATE_THREAD(stack_limit))
++		stopf("stack overflow (expression too deep)");
++#endif
++}
+ /*
+ int
+ main(int argc, char *argv[])
+@@ -16815,10 +16948,15 @@ void outbuf_puts(char *s)
+     m = 1000 * ((outbuf_index + len + 1) / 1000 + 1); // +1 for '\0'
+ 
+     if (m > outbuf_length) {
+-        outbuf = e_realloc(outbuf, m);
+-        if (outbuf == NULL) {
+-            stopf("outbuf_puts: realloc failed");
++        /* SuperCalc patch: on OOM keep the old buffer and drop the text. Calling stopf()
++         * here recursed forever (stopf -> print_trace -> outbuf_puts -> stopf ...) and
++         * overflowed the C stack: the "EigenMath(64K) hangs the board" bug. */
++        char *nb = e_realloc(outbuf, m);
++        if (nb == NULL) {
++            outbuf_oom = 1;
++            return;
+         }
++        outbuf = nb;
+         outbuf_length = m;
+     }
+ 
+@@ -16844,11 +16982,13 @@ outbuf_putc(int c)
+ 	m = 1000 * ((outbuf_index + 1) / 1000 + 1); // m is a multiple of 1000
+ 
+ 	if (m > outbuf_length) {
+-		outbuf = e_realloc(outbuf, m);
+-		if (outbuf == NULL){
+-			//exit(1);
+-			stopf("outbuf_putc: realloc failed");
++		/* SuperCalc patch: see outbuf_puts */
++		char *nb = e_realloc(outbuf, m);
++		if (nb == NULL){
++			outbuf_oom = 1;
++			return;
+ 		}
++		outbuf = nb;
+ 		outbuf_length = m;
+ 	}
+ 
+@@ -17173,7 +17313,16 @@ issmallinteger(struct atom *p)
+ void
+ run(char *buf)
+ {
++	stop_active = 0;
+ 	if (setjmp(jmpbuf0)){
++		stop_active = 0;
++		em_stopped = 1;
++		if (em_initializing) {
++			/* SuperCalc patch: half-built symbol table; never reuse it */
++			em_initializing = 0;
++			zero = NULL;
++			em_init_failed = 1;
++		}
+ 		return;
+ 	}
+ 	tos = 0;
+@@ -17185,6 +17334,8 @@ run(char *buf)
+ 	nonstop = 0;
+ 
+ 	if (zero == NULL) {
++		em_initializing = 1;
++		em_init_failed = 0;
+ 		init_symbol_table();
+ 		push_bignum(MPLUS, mint(0), mint(1));
+ 		zero = pop();
+@@ -17198,7 +17349,14 @@ run(char *buf)
+ 		list(3);
+ 		imaginaryunit = pop();
+ 		run_init_script();
++		em_initializing = 0;
++	} else if (em_stopped) {
++		/* SuperCalc patch: the last command was aborted (often out of memory) and its
++		 * garbage still holds eheap blocks; nothing is in C locals here, so collect now
++		 * instead of failing every following command. */
++		gc();
+ 	}
++	em_stopped = 0;
+ 
+ 	run_buf(buf);
+ }
+@@ -17302,6 +17460,12 @@ stopf(char *s)
+ 	if (nonstop){
+ 		longjmp(jmpbuf1, 1);
+ 	}
++	/* SuperCalc patch: an error while reporting an error (e.g. out of memory) must not
++	 * recurse; unwind straight to run() instead. */
++	if (stop_active){
++		longjmp(jmpbuf0, 1);
++	}
++	stop_active = 1;
+ 	print_trace(RED);
+ 	snprintf(strbuf, STRBUFLEN, "Stop: %s\n", s);
+ 	if (noprint == false){
+@@ -17363,6 +17527,42 @@ char *token_str;
+ char *token_buf;
+ int token_buf_len;
+ 
++/* SuperCalc patch: forget every pointer into the (old) eigenmath heap and every piece of
++ * interpreter state, so a heap can be freed and a new one initialised any number of times
++ * (EigenMath(n) -> del/deinit -> gc.collect() -> EigenMath(m), and after a soft reset). */
++void
++eigenmath_reset_statics(void)
++{
++	mem = NULL; free_list = NULL;
++	outbuf_oom = 0; em_init_failed = 0; em_initializing = 0; stop_active = 0;
++	em_min_free_atoms = 0; em_stack_hwm = 0; em_reclaim_armed = 0; em_stopped = 0;
++	stack = NULL; symtab = NULL; binding = NULL; usrfunc = NULL;
++	zero = NULL; one = NULL; minusone = NULL; imaginaryunit = NULL;
++	tos = 0;
++	eval_level = 0; gc_level = 0; expanding = 1; drawing = 0; nonstop = 0; interrupt = 0;
++	trace1 = NULL; trace2 = NULL;
++	alloc_count = 0; block_count = 0; free_count = 0; gc_count = 0;
++	bignum_count = 0; ksym_count = 0; usym_count = 0; string_count = 0; tensor_count = 0;
++	max_eval_level = 0; max_tos = 0;
++	strbuf[0] = '\0';
++	outbuf = NULL; outbuf_index = 0; outbuf_length = 0;
++	fmt_level = 0; fmt_nrow = 0; fmt_ncol = 0; fmt_buf = NULL; fmt_buf_len = 0;
++	token = 0; scan_mode = 0; scan_level = 0;
++	scan_str = NULL; token_str = NULL; token_buf = NULL; token_buf_len = 0;
++	mstr_buf = NULL; mstr_len = 0;
++	eigvec_D = NULL; eigvec_Q = NULL;
++	nroots_cr = NULL; nroots_ci = NULL;
++	noprint = false;
++	MAXATOMS = 0; STACKSIZE = 0;
++}
++
++void
++eigenmath_deinit(void)
++{
++	eigenmath_reset_statics();
++	eheap_deinit();
++}
++
+ char *
+ scan(char *s)
+ {
+@@ -17528,6 +17728,7 @@ scan_power(void)
+ void
+ scan_factor(void)
+ {
++	em_stack_check();  /* SuperCalc patch: deeply nested input */
+ 	int h = tos;
+ 
+ 	switch (token) {
+diff --git a/eigenmath.h b/eigenmath.h
+index 63e6b16..a8e2f18 100644
+--- a/eigenmath.h
++++ b/eigenmath.h
+@@ -10,7 +10,11 @@ extern "C" {
+ 
+ 
+ #define STRBUFLEN 1000
+-#define BUCKETSIZE 100
++/* SuperCalc patch: was 100. Builtins use at most 18 slots per bucket, so 50 still
++ * leaves >= 32 user symbols per first letter and saves 16,200 bytes on RP2350. */
++#ifndef BUCKETSIZE
++#define BUCKETSIZE 50
++#endif
+ #define MAXDIM 24
+ 
+ //extern struct atom *mem ;
+@@ -26,8 +30,17 @@ extern "C" {
+ extern bool noprint;
+ extern char *outbuf;
+ extern int outbuf_index;
+-extern void eigenmath_init(uint8_t *pHeap,size_t heapSize);
++extern int eigenmath_init(uint8_t *pHeap,size_t heapSize);  /* 0 = ok */
++extern int em_init_failed;
++extern int outbuf_oom;
++extern int em_min_free_atoms;
++extern int em_stack_hwm;
++void em_stack_check(void);
++void em_reclaim_begin(void);
++void em_reclaim_end(void);
+ extern void run(char *buf);
++extern void eigenmath_reset_statics(void);
++extern void eigenmath_deinit(void);
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/eigenmath_mpy.c b/eigenmath_mpy.c
+index 26d275c..7593796 100644
+--- a/eigenmath_mpy.c
++++ b/eigenmath_mpy.c
+@@ -17,6 +17,7 @@
+ #include "py/binary.h"
+ #include "py/gc.h"
+ #include "py/stream.h"
++#include "py/nlr.h"
+ #include "eigenmath.h"
+ #include "eheap.h"
+ //-DPICO_STACK_SIZE=0x4000 ??
+@@ -27,6 +28,110 @@ typedef struct _mp_obj_eigenmath_t {
+     uint8_t  *pHeap;
+ } mp_obj_eigenmath_t;
+ 
++/* SuperCalc patch: eigenmath keeps its interpreter state in C globals, so only one
++ * instance can own them. em_active is compared by address only and never
++ * dereferenced, so it is harmless if that object was already garbage-collected
++ * (e.g. "del em; gc.collect()" without deinit(), or after a soft reset). */
++static mp_obj_eigenmath_t *em_active = NULL;
++
++static void em_free_heap(mp_obj_eigenmath_t *self) {
++    if (self->pHeap != NULL) {
++#if MICROPY_MALLOC_USES_ALLOCATED_SIZE
++        m_free(self->pHeap, self->heapSize);
++#else
++        m_free(self->pHeap);
++#endif
++        self->pHeap = NULL;
++    }
++}
++
++/* Release this instance: clear eigenmath's globals (if it owns them) and give the
++ * heap back to MicroPython. Safe to call any number of times. */
++static void em_deinit(mp_obj_eigenmath_t *self) {
++    if (self == em_active) {
++        eigenmath_deinit();
++        em_active = NULL;
++    }
++    em_free_heap(self);
++}
++
++static mp_obj_eigenmath_t *em_live(mp_obj_t self_in) {
++    mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);
++    if (self->pHeap == NULL) {
++        mp_raise_ValueError(MP_ERROR_TEXT("EigenMath instance is deinitialized"));
++    }
++    if (self != em_active) {
++        mp_raise_ValueError(MP_ERROR_TEXT("EigenMath instance replaced by a newer one; call reset()"));
++    }
++    return self;
++}
++
++/* SuperCalc patch: smallest heap that can hold eigenmath's fixed tables, its symbol
++ * table/init script and a minimal session (d(), integral(), simplify()), with margin.
++ * RP2350 (arm-none-eabi: 12-byte atoms, 4-byte pointers, 8-byte eheap headers,
++ * BUCKETSIZE 50): fixed tables (40% atoms + stack + 3 x 5400 B) fit from 27,568 B;
++ * symbol table + init script from ~36,792 B; minimal session from ~46,284 B;
++ * integral(1/(1+x^2),x) ~49,735 B (measured on a 32-bit build). 64 KB = ~40% margin. */
++#ifndef EIGENMATH_MIN_HEAP
++#define EIGENMATH_MIN_HEAP (64 * 1024)
++#endif
++
++extern struct atom *zero;
++
++/* Undo everything a failed start allocated, then raise. Never returns. */
++static void em_start_failed(mp_obj_eigenmath_t *self, const char *what) {
++    size_t n = self->heapSize;
++    eigenmath_deinit();      /* all eigenmath globals back to their initial state */
++    em_active = NULL;
++    em_free_heap(self);      /* m_free(pHeap); pHeap = NULL */
++    mp_raise_msg_varg(&mp_type_MemoryError,
++        MP_ERROR_TEXT("EigenMath(%u): heap too small for %s (MIN_HEAP=%u)"),
++        (unsigned)n, what, (unsigned)EIGENMATH_MIN_HEAP);
++}
++
++/* Transactional start: on any failure the instance is released and the globals are
++ * clean, so a later EigenMath(n) works. */
++static void em_start(mp_obj_eigenmath_t *self) {
++    int rc = 0;
++    em_active = NULL;
++    nlr_buf_t nlr;
++    if (nlr_push(&nlr) == 0) {
++        rc = eigenmath_init(self->pHeap, self->heapSize);
++        nlr_pop();
++    } else {
++        eigenmath_deinit();
++        em_free_heap(self);
++        nlr_jump(nlr.ret_val);
++    }
++    if (rc != 0) {
++        em_start_failed(self, "its fixed tables");
++    }
++    /* Build the symbol table and run the init script now, so a too-small heap fails
++     * here instead of in the first run(). */
++    noprint = true;
++    outbuf_index = 0;
++    outbuf_oom = 0;
++    run("");
++    if (em_init_failed || zero == NULL) {
++        em_start_failed(self, "its symbol table");
++    }
++    outbuf_index = 0;
++    noprint = false;
++    em_active = self;
++}
++
++/* After run(): turn heap exhaustion into a Python exception. */
++static void em_after_run(mp_obj_eigenmath_t *self) {
++    if (em_init_failed) {
++        em_deinit(self);
++        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("EigenMath heap too small; instance released"));
++    }
++    if (outbuf_oom) {
++        outbuf_oom = 0;
++        mp_raise_msg(&mp_type_MemoryError, MP_ERROR_TEXT("EigenMath heap exhausted; call reset() or use a larger heap"));
++    }
++}
++
+ static void eigenmath_print(const mp_print_t *print, mp_obj_t self_in, mp_print_kind_t kind) {
+     mp_printf(print, "<EigenMath instance>");
+ }
+@@ -41,6 +146,11 @@ static mp_obj_t eigenmath_make_new(const mp_obj_type_t *type,
+     self->heapSize = mp_obj_get_int(args[0]); // 350 * 1024; // 350KB
+     //mp_printf(&mp_plat_print,"heapSize = %d\n", self->heapSize);
+ 
++    if (self->heapSize < EIGENMATH_MIN_HEAP) {  /* SuperCalc patch */
++        mp_raise_msg_varg(&mp_type_ValueError, MP_ERROR_TEXT("EigenMath heap must be >= %u bytes"),
++            (unsigned)EIGENMATH_MIN_HEAP);
++    }
++    self->pHeap = NULL;
+     self->pHeap = (uint8_t *)m_malloc(self->heapSize);
+ 
+     //mp_printf(&mp_plat_print,"ptemp = %x\n", (uint32_t)(ptemp));
+@@ -51,13 +161,28 @@ static mp_obj_t eigenmath_make_new(const mp_obj_type_t *type,
+ 	} 
+     
+ 
+-    eigenmath_init(self->pHeap,self->heapSize);
++    em_start(self);  /* SuperCalc patch: transactional; raises MemoryError and cleans up */
+ 
+ 	return MP_OBJ_FROM_PTR(self);
+ }
+ 
++/* SuperCalc patch: upstream returned mp_obj_new_bytearray_by_ref(outbuf_index-1, outbuf),
++ * which (a) wraps to a ~4 GB length when a command prints nothing (e.g. "x=3") and
++ * (b) aliases the eigenmath output buffer, which the next run() overwrites.
++ * Return an independent bytearray (same type as upstream), minus a trailing newline. */
++static mp_obj_t eigenmath_result_bytes(void) {
++    if (outbuf == NULL || outbuf_index <= 0) {
++        return mp_obj_new_bytearray(0, NULL);
++    }
++    int n = outbuf_index;
++    if (outbuf[n - 1] == '\n') {
++        n--;  /* upstream trimmed one char unconditionally, which cut error text short */
++    }
++    return mp_obj_new_bytearray(n, outbuf);
++}
++
+ static mp_obj_t eigenmath_run(size_t n_args, const mp_obj_t *args) {
+-	//mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);mp_obj_t input_str_obj
++	mp_obj_eigenmath_t *self = em_live(args[0]);  /* SuperCalc patch */
+ 	size_t len;
+     if (n_args >= 3){
+     mp_obj_t arg = args[2];
+@@ -76,10 +201,13 @@ static mp_obj_t eigenmath_run(size_t n_args, const mp_obj_t *args) {
+     const char *buf = mp_obj_str_get_data(args[1], &len);
+ 
+ 	//GET_STR_DATA_LEN(input_str_obj, str, str_len);
++	outbuf_index = 0;  /* SuperCalc patch: drop stale output from the previous command */
++	outbuf_oom = 0;
+ 	run((char *)buf);
++	em_after_run(self);
+ 
+     if (noprint == true){
+-        return mp_obj_new_bytearray_by_ref(outbuf_index-1, outbuf);
++        return eigenmath_result_bytes();  /* SuperCalc patch: copy, and len 0 when no output */
+         // return memoryview
+         //return mp_obj_new_memoryview(BYTEARRAY_TYPECODE, outbuf);
+ 
+@@ -94,20 +222,24 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(eigenmath_run_obj,2,3, eigenmath_run)
+ 
+ 
+ static mp_obj_t eigenmath_call(mp_obj_t self_in, size_t n_args, size_t n_kw, const mp_obj_t *args) {
+-    //mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);
++    mp_obj_eigenmath_t *self = em_live(self_in);  /* SuperCalc patch */
+     noprint = false;
+     if (n_args != 1 || n_kw != 0) {
+         mp_raise_TypeError(MP_ERROR_TEXT("Expected 1 positional argument"));
+     }
+ 
+     const char *cmd = mp_obj_str_get_str(args[0]);
++    outbuf_index = 0;
++    outbuf_oom = 0;
+     run((char *)cmd);  // 
++    em_after_run(self);
+     return mp_const_none;
+ }
+ 
+ 
+ 
+ static mp_obj_t eigenmath_runfile(size_t n_args, const mp_obj_t *args ) {//mp_obj_t input_file_obj
++    mp_obj_eigenmath_t *self = em_live(args[0]);  /* SuperCalc patch */
+ 
+     if (n_args >= 3){
+         mp_obj_t arg = args[2];
+@@ -159,13 +291,16 @@ static mp_obj_t eigenmath_runfile(size_t n_args, const mp_obj_t *args ) {//mp_ob
+     buf[out_sz] = '\0';
+ 
+     // run
++    outbuf_index = 0;  /* SuperCalc patch: drop stale output from the previous command */
++    outbuf_oom = 0;
+     run(buf);
+ 
+     // release buffer
+     m_del(char, buf, size + 1);
++    em_after_run(self);
+ 
+     if (noprint == true){
+-        return mp_obj_new_bytearray_by_ref(outbuf_index-1, outbuf);
++        return eigenmath_result_bytes();  /* SuperCalc patch: copy, and len 0 when no output */
+         // return memoryview
+         //return mp_obj_new_memoryview(BYTEARRAY_TYPECODE, bytearray);
+ 
+@@ -182,7 +317,7 @@ static MP_DEFINE_CONST_FUN_OBJ_VAR_BETWEEN(eigenmath_runfile_obj, 2,3,eigenmath_
+ extern int free_count;
+ extern int MAXATOMS;
+ static mp_obj_t eigenmath_status(mp_obj_t self_in) {
+-	//mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);
++	em_live(self_in);  /* SuperCalc patch */
+ 	int fragmentation = e_heap_fragmentation();
+     size_t free_bytes = e_heap_free();
+     size_t min_free = e_heap_min_free();
+@@ -191,6 +326,8 @@ static mp_obj_t eigenmath_status(mp_obj_t self_in) {
+     mp_printf(&mp_plat_print,"Free bytes in Heap: %d\n", (int)free_bytes);
+     mp_printf(&mp_plat_print,"Minimum free bytes in Heap: %d\n", (int)min_free);
+     mp_printf(&mp_plat_print,"Number of free atoms: %d of %d\n", num_atoms,MAXATOMS);
++    mp_printf(&mp_plat_print,"Minimum free atoms: %d\n", em_min_free_atoms);  /* SuperCalc patch */
++    mp_printf(&mp_plat_print,"Peak C stack in eigenmath: %d bytes\n", em_stack_hwm);
+ 	return mp_const_none;
+ 
+ }
+@@ -200,9 +337,8 @@ static MP_DEFINE_CONST_FUN_OBJ_1(eigenmath_status_obj, eigenmath_status);
+ 
+ extern struct atom *zero;
+ static mp_obj_t eigenmath_del(mp_obj_t self_in) {
+-	mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);
+-	m_free(&self->pHeap); // deinitialize the hea
+-	zero = NULL;
++	/* SuperCalc patch: __del__ and deinit() share one idempotent release path */
++	em_deinit(MP_OBJ_TO_PTR(self_in));
+ 	return mp_const_none;
+ }
+ static MP_DEFINE_CONST_FUN_OBJ_1(eigenmath_del_obj, eigenmath_del);
+@@ -210,8 +346,10 @@ static MP_DEFINE_CONST_FUN_OBJ_1(eigenmath_del_obj, eigenmath_del);
+ extern struct atom *zero;
+ static mp_obj_t eigenmath_reset(mp_obj_t self_in) {
+     mp_obj_eigenmath_t *self = MP_OBJ_TO_PTR(self_in);
+-	eigenmath_init(self->pHeap,self->heapSize);
+-    zero = NULL;//triger the symbol table initialization
++    if (self->pHeap == NULL) {  /* SuperCalc patch */
++        mp_raise_ValueError(MP_ERROR_TEXT("EigenMath instance is deinitialized"));
++    }
++    em_start(self);  /* reset() also re-takes ownership from a newer instance; transactional */
+     return mp_const_none;
+ }
+ static MP_DEFINE_CONST_FUN_OBJ_1(eigenmath_reset_obj, eigenmath_reset);
+@@ -233,6 +371,7 @@ static const mp_rom_map_elem_t eigenmath_locals_dict_table[] = {
+     { MP_ROM_QSTR(MP_QSTR_runfile), MP_ROM_PTR(&eigenmath_runfile_obj) },
+ 	{ MP_ROM_QSTR(MP_QSTR_reset), MP_ROM_PTR(&eigenmath_reset_obj) },
+     { MP_ROM_QSTR(MP_QSTR_status), MP_ROM_PTR(&eigenmath_status_obj) },
++    { MP_ROM_QSTR(MP_QSTR_deinit), MP_ROM_PTR(&eigenmath_del_obj) },  /* SuperCalc patch */
+ };
+ static MP_DEFINE_CONST_DICT(eigenmath_locals_dict, eigenmath_locals_dict_table);
+ 
+@@ -251,6 +390,7 @@ MP_DEFINE_CONST_OBJ_TYPE(
+ static const mp_rom_map_elem_t eigenmath_module_globals_table[] = {
+     { MP_ROM_QSTR(MP_QSTR___name__), MP_ROM_QSTR(MP_QSTR_eigenmath) },
+     { MP_ROM_QSTR(MP_QSTR_EigenMath), MP_ROM_PTR(&eigenmath_type) },
++    { MP_ROM_QSTR(MP_QSTR_MIN_HEAP), MP_ROM_INT(EIGENMATH_MIN_HEAP) },  /* SuperCalc patch */
+     };
+     static MP_DEFINE_CONST_DICT(mp_module_eigenmath_globals, eigenmath_module_globals_table);
+     

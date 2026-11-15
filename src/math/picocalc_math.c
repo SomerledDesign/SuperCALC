@@ -12,9 +12,14 @@
 
 #include "py/obj.h"
 #include "py/runtime.h"
-#include "py/objiter.h"
+// (py/objiter.h does not exist in MicroPython v1.25; mp_obj_iter_buf_t comes from py/obj.h)
 #include <math.h>
 #include <string.h>
+
+// MicroPython >= 1.23 removed the STATIC macro; keep this file building on old and new trees.
+#ifndef STATIC
+#define STATIC static
+#endif
 
 // --- Thin documented API (subject to small evolution in Phase 1) ---
 
@@ -162,10 +167,10 @@ STATIC mp_obj_t picocalc_math_sum(mp_obj_t it_in) {
     double s = 0.0;
     int n = 0;
     mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t iter = mp_getiter(it_in, &iter_buf);
     mp_obj_t item;
     while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
-        double v;
+        mp_float_t v;  // mp_obj_get_float_maybe needs mp_float_t* (float on rp2)
         if (!mp_obj_get_float_maybe(item, &v)) {
             mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
         }
@@ -183,10 +188,10 @@ STATIC mp_obj_t picocalc_math_mean(mp_obj_t it_in) {
     double s = 0.0;
     int n = 0;
     mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t iter = mp_getiter(it_in, &iter_buf);
     mp_obj_t item;
     while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
-        double v;
+        mp_float_t v;  // mp_obj_get_float_maybe needs mp_float_t* (float on rp2)
         if (!mp_obj_get_float_maybe(item, &v)) {
             mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
         }
@@ -206,10 +211,10 @@ STATIC mp_obj_t picocalc_math_stdev(mp_obj_t it_in) {
     double m2 = 0.0;
     int n = 0;
     mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iter = mp_obj_get_iter(it_in, &iter_buf);
+    mp_obj_t iter = mp_getiter(it_in, &iter_buf);
     mp_obj_t item;
     while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
-        double x;
+        mp_float_t x;  // mp_obj_get_float_maybe needs mp_float_t* (float on rp2)
         if (!mp_obj_get_float_maybe(item, &x)) {
             mp_raise_ValueError(MP_ERROR_TEXT("stats expected numeric iterable"));
         }
@@ -238,10 +243,10 @@ STATIC mp_obj_t picocalc_math_rpn_eval(mp_obj_t tokens_in) {
     int sp = 0;  // stack pointer (next free)
 
     mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iter = mp_obj_get_iter(tokens_in, &iter_buf);
+    mp_obj_t iter = mp_getiter(tokens_in, &iter_buf);
     mp_obj_t item;
     while ((item = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
-        double v;
+        mp_float_t v;  // mp_obj_get_float_maybe needs mp_float_t* (float on rp2)
         if (mp_obj_get_float_maybe(item, &v)) {
             if (sp >= RPN_STACK_MAX) {
                 mp_raise_ValueError(MP_ERROR_TEXT("rpn stack overflow"));
