@@ -1,135 +1,105 @@
-# SuperCalc.OG — Definitive Scientific / Graphing / Programmable Calculator for PicoCalc
+# SuperCALC
 
-**Target Platform**: ClockworkPi PicoCalc (v2.0 board) with Raspberry Pi **Pico 2 W** (RP2350)
+**Scientific, RPN, graphing and algebra (CAS) calculator firmware for the [ClockworkPi PicoCalc](https://github.com/clockworkpi/PicoCalc) with a Raspberry Pi Pico 2 W.**
 
-**Project Root**: `~/Library/CloudStorage/Dropbox/Penus/iWasCoding/PicoCalc/SuperCalc.OG/`
+SuperCALC is a single MicroPython firmware image for the PicoCalc. It combines a custom C math module, the [Eigenmath](https://georgeweigt.github.io/) computer algebra engine and LofiFren's PicoCalc display and keyboard drivers. Floats are IEEE 754 double precision, so calculations carry 15–16 significant digits. It also has a startup splash screen. 😁
 
-**Status**: Phase 7 — host tests green; MicroPython bring-up on PicoCalc Pico 2 W (USB REPL + IPS boot banner). Push after on-device confirm.
+---
 
-## Vision
+## 📘 The SuperCalc Owner's Manual
 
-A "full on" scientific, graphing, and programmable calculator that captures the best of the classic HP programmable machines (HP-41, HP-48/49/50 RPL lineage) while delivering modern capability on the charming PicoCalc hardware.
+<a href="docs/SuperCalc_Manual.pdf"><img src="docs/images/supercalc-manual-cover.png" alt="SuperCalc Owner's Manual cover" width="240" align="right"></a>
 
-- **Hybrid architecture**: C for speed + numerical accuracy + core execution; MicroPython for flexibility, UI, and user extensibility.
-- **Multiple entry modes**: Algebraic (infix with precedence) + full RPN/RPL-style.
-- **Deep math**: High-quality numeric, matrices, complex numbers, statistics, solvers, units, constants — plus symbolic/CAS hooks.
-- **Graphing**: Fast, usable 2D (Cartesian, polar, parametric, etc.), multiple plots, interactive exploration.
-- **True programmability**: HP-style custom language / RPL-inspired environment. User-defined functions, programs, local variables, control structures, stack manipulation, first-class programs. Stored on SD, loadable, editable on-device.
-- **Offline-first**: Everything works without network. WiFi/BT are optional future enhancements.
-- **Hardware fit**: Leverages the beautiful 320×320 IPS, 67-key backlit QWERTY, 8 MB PSRAM, SD storage, dual speakers, and long battery life.
+**[Download the SuperCalc Owner's Manual (PDF, 56 pages)](docs/SuperCalc_Manual.pdf)**
 
-This is a **Ralph Loop** endeavour: rigorous, iterative, high-quality development with clear phases, self-review, and independent QA handoff (Claude + review tools).
+The manual is a full guide in the style of the classic calculator handbooks. It has worked Press / Display examples, and every Display value in it was produced by running the SuperCalc code. It covers:
 
-## Inspirations
+- Getting started, the screen, and display format
+- Arithmetic, functions, constants, and scientific notation
+- RPN entry and the stack, plus statistics on a list
+- Storing and recalling values, short programs, and numeric root finding
+- Full-screen graphing
+- 12C mode: eight fill-in financial worksheets (TVM, savings, mortgage and amortization, loan payoff, NPV/IRR, percent/APR, date math, Black-Scholes options)
+- The algebra (CAS) commands: simplify, expand, factor, derivatives, integrals, solving, and Taylor series
+- Error messages, specifications and precision, troubleshooting, and a one-page command summary
 
-- Classic HP programmables: HP-41C (keystroke + extensions), HP-48/49/50 series (full RPL — Reverse Polish Lisp — with extraordinary programmability, object model, and library power).
-- Modern graphing calculators (TI-89/92, Casio, NumWorks) for UI/UX lessons.
-- The PicoCalc community ports (especially zenodante and LofiFren) that already provide excellent optimized display, keyboard, terminal, and even ulab + eigenmath builds.
+The manual was written by Donna, a Grok Bot agent, for Somerled Design.
 
-## High-Level Architecture (Hybrid)
+<br clear="right">
 
-```
-User Input (Keyboard / REPL)
-          │
-          ▼
-MPy Layer (mp/)
-  • Expression entry (infix ↔ RPN)
-  • UI / menus / history / graph viewport
-  • Program editor & SD manager
-  • High-level orchestration
-          │ (calls / passes data)
-          ▼
-C Core (src/)
-  • Math kernel (numeric, matrices, complex, solvers — high accuracy)
-  • Symbolic interface (eigenmath or lightweight CAS)
-  • Plotting engine (sampling + fast rendering primitives)
-  • Language VM / bytecode executor (HP-style programs)
-  • Low-level hardware extensions (if needed beyond base drivers)
-          │
-          ▼
-Base Firmware Drivers (frozen C modules)
-  • picocalcdisplay (framebuffer + LUT + core1 refresh)
-  • vtterminal / keyboard (I2C)
-  • SD, audio PWM, etc.
-```
+---
 
-**Key extension points**:
-- New custom C modules (compiled into a PicoCalc-specific MicroPython build for Pico 2 W).
-- Python-accessible C functions for hot paths.
-- SD-based storage for user programs, custom functions, constants, saved plots/data.
+## Features
 
-## Current Project Structure
+- **Algebraic and RPN entry.** Type `2+3*4` or `2 3 +`. The stack is visible, with `dup`, `drop`, `swap`, `over` and `lastx`.
+- **Double precision.** 64-bit floats come from a MicroPython config overlay (`firmware/config/`). A single-precision build is still available.
+- **C math module** (`src/math/picocalc_math.c`) for the hot paths, with a pure-Python fallback (`mp/lib/hybrid.py`).
+- **Algebra (CAS)** through Eigenmath (`mp/lib/cas.py`): `simplify`, `expand`, `factor`, `d` (derivative), `int` (integral), `solve`, `taylor`, raw `eig` and `cas [clear|free]`. The engine starts on first use and can be freed to give its heap back.
+- **Variables, programs and solving:** `sto` / `rcl`, user programs, and a numeric root finder (`.solve f a b`).
+- **Statistics** on a list: `sum`, `mean`, `stdev` and `len`.
+- **Graphing** of functions of `x`.
+- **12C-style financial worksheets** (see the manual, chapters 6–10).
+- **Startup splash** frozen into flash as a compact 16-colour image. You can replace it from the SD card without reflashing; see [Custom splash screen](#custom-splash-screen).
+- **Fixes for working over USB:** soft-reset-safe drivers, and `mpremote` raw-paste works with the PicoCalc terminal attached.
 
-```
-SuperCalc.OG/
-├── README.md
-├── docs/                 # Design, phases, references, HP notes
-├── src/                  # C heavy lifting
-│   ├── core/             # Glue, VM, system interfaces
-│   ├── math/             # Numeric + symbolic kernel
-│   └── plot/             # Graphing primitives & renderers
-├── mp/                   # MicroPython layer
-│   ├── ui/               # Screens, input, graphing UI, menus
-│   ├── lang/             # Parser, compiler, runtime for custom HP-style language
-│   ├── apps/             # Built-in apps (solver, stats, constants, etc.)
-│   └── lib/              # Reusable MPy modules
-├── firmware/             # Notes + build artifacts for custom UF2
-├── tools/                # Flash helpers, dashboard integration, build scripts
-├── build/                # Build outputs
-├── examples/             # Example programs (user + demo)
-├── tests/                # Unit + integration tests (host + on-device)
-├── assets/               # Fonts, icons, reference images
-└── .gitignore
+## Installing
+
+> **Binary releases are not available yet.** They are waiting on licensing for two upstream components; see [License](#license). Until then, build the UF2 from source as shown below.
+
+When a release is published, installing it will take three steps:
+
+1. Hold the **BOOTSEL** button on the Pico 2 W while you connect it to your computer over USB. It mounts as a drive named `RPI-RP2`.
+2. Drag the SuperCALC `.uf2` file onto that drive. The PicoCalc reboots by itself.
+3. To go back, flash the stock PicoCalc / LofiFren UF2 the same way.
+
+The UF2 is for the **PicoCalc with a Raspberry Pi Pico 2 W (RP2350)** only.
+
+## Building from source
+
+`tools/build_supercalc.sh` fetches the pinned sources, applies the patches in `firmware/patches/`, and builds one UF2 into `build/`. It never flashes anything.
+
+```sh
+tools/build_supercalc.sh --check   # check tools and source refs only
+tools/build_supercalc.sh           # build -> build/supercalc-og-pico2w-YYYYMMDD-double.uf2
+SUPERCALC_FLOAT=single tools/build_supercalc.sh   # stock 32-bit floats
 ```
 
-## Base Platform Recommendation (to be confirmed in Phase 0)
+**You need:** `git`, `make`, `cmake`, `python3`, a host C/C++ compiler, and `arm-none-eabi-gcc` with newlib (Arm GNU Toolchain). On macOS, install them with `brew install cmake` and `brew install --cask gcc-arm-embedded`.
 
-Start from the excellent community work:
+**Pinned sources:**
 
-- **LofiFren/PicoCalc** (Pico 2 W focused, great dashboard + apps + MCP)
-- **zenodante/PicoCalc-micropython-driver** (core C display/keyboard drivers + ulab/eigenmath builds)
+| Component | Ref |
+|---|---|
+| MicroPython (board `RPI_PICO2_W`) | `f187c77da8b0ff51927b62cd1f4efd78c03bdb7f` (v1.25.0-preview) |
+| zenodante/eigenmath_micropython | `ea94bc5a9565f0565e04218061237096f6e0ca54` |
+| LofiFren/PicoCalc (tested) | `c711a366febe21061dbfff69a616cb22e0364ccd` |
 
-We will:
-1. Use (or fork) one of these as the base firmware.
-2. Add new `USER_C_MODULES` for the calculator core (math, plot, lang VM).
-3. Keep the existing high-quality display/keyboard abstractions.
-4. Extend the MPy environment with our `mp/` tree.
+The LofiFren checkout is expected next to this project (`../LofiFren-PicoCalc/MicroPython`) or wherever `PICOCALC_DRIVER_DIR` points. The script builds from a patched copy and never edits the checkout. The comments at the top of the script cover the other options (`SUPERCALC_FW_WORK`, `JOBS`, `SUPERCALC_TAG` and the rest). The firmware image has to stay under 1.5 MB so it doesn't overlap the filesystem.
 
-This gives us immediate working display, keyboard, SD, REPL, editor, and even symbolic math to build upon instead of starting from zero.
+**Host tests:** run the plain-Python tests in `tests/`, for example `python3 tests/test_expr.py` or `python3 tests/test_cas.py`.
 
-## Phased Development (Ralph Loop)
+## Custom splash screen
 
-See `docs/PHASES.md` for the detailed plan.
+The built-in splash comes from `firmware/frozen/sc_splash_data.py`, which `tools/make_splash.py` generates. That script needs Python 3 and Pillow.
 
-Rough sequence:
-- **Phase 0**: Scaffolding, architecture lock-in, base firmware selection + build environment.
-- **Phase 1**: Core hybrid math engine + expression system (infix + RPN) + evaluator.
-- **Phase 2**: REPL + stack + variables + HP-style programmable language skeleton (custom language + VM).
-- **Phase 3**: Graphing engine (2D first, multiple functions, interaction).
-- **Phase 4+**: Solvers, units, stats, richer CAS integration, on-device programming polish, full apps, performance tuning, packaging.
+```sh
+tools/make_splash.py SPLASH.png                     # regenerate the built-in splash (rebuild the firmware afterward)
+tools/make_splash.py SPLASH.png --sd splash.scs     # also write an SD card file
+tools/make_splash.py SPLASH.png --preview out.png   # preview what the PicoCalc will show
+```
 
-At each meaningful increment we do internal review then hand off to Claude for independent QA.
+To change the splash without reflashing, copy `splash.scs` to the root of the SD card as **`/sd/splash.scs`**. If the card or the file has any problem, SuperCALC falls back to the built-in image. Pressing any PicoCalc key dismisses the splash, and that key never reaches the menu. Otherwise it closes after a short timeout.
 
-## Getting Started (for the team)
+## Repository layout
 
-1. Hardware: PicoCalc kit assembled with Pico 2 W installed.
-2. Base firmware: Follow LofiFren or zenodante flashing instructions (UF2 via BOOTSEL).
-3. Dev tools: Thonny or mpremote + the excellent dashboard from LofiFren for file sync/REPL.
-4. C extensions: Docker-based build like the existing ports (or native Pico SDK).
-
-Detailed bring-up will be documented in `docs/` as we go.
-
-## Ralph Loop Principles (for this project)
-
-- Small, verifiable increments.
-- Heavy lifting by Grok; independent QA by Claude (using review/check-work skills when appropriate).
-- Clear documentation and design artifacts updated with each phase.
-- On-device testing on real hardware is mandatory.
-- "Best of all worlds" — respect speed (C), accuracy (good numerics + CAS), usability (HP spirit + modern affordances), and the delightful PicoCalc hardware.
-
-## Contributing / Process Note
-
-This is a focused, high-standard personal + collaborative build. All major changes go through the loop.
+```
+src/        C user modules (math kernel, plot, VM)
+mp/         MicroPython calculator layer (expression parser, CAS bridge, REPL, plot, solver)
+firmware/   build config overlays, frozen modules (splash), upstream patches, diagnostics
+tools/      build_supercalc.sh, make_splash.py, device sync helpers
+tests/      host-side tests
+docs/       Owner's Manual (PDF), architecture and bring-up notes
+```
 
 ## License
 
@@ -139,9 +109,19 @@ The firmware build pulls in third-party components (MicroPython, the Raspberry P
 
 - **Binary releases are on hold.** No UF2 will be published until zenodante licenses the PicoCalc display/terminal driver (`PicoCalc-micropython-driver`) and the eigenmath MicroPython wrapper (`eigenmath_micropython`), both of which are built into the firmware. UF2 files are not committed to this repository.
 - **Hardware:** the SuperCALC UF2 is for the ClockworkPi PicoCalc with a Raspberry Pi Pico 2 W only. The Wi-Fi/Bluetooth components (cyw43-driver, BTstack) are licensed for use with Raspberry Pi silicon only.
+- **Manual:** the Owner's Manual PDF is Copyright © 2026 Somerled Design, all rights reserved, as stated in the manual. It is not covered by the MIT License.
 
----
+## Credits
 
-**Buona fortuna e buon lavoro!** Let's make something definitive.
+SuperCALC was created by **Kevin Murphy (W8VOS, [Somerled Design](https://github.com/SomerledDesign))** in collaboration with **Claude.ai** and **Grok Bot**. That human + AI collaboration is what brought it into being.
 
-Next: Phase 0 work (base firmware confirmation + detailed architecture). See docs/.
+It stands on the work of:
+
+- **George Weigt**, author of the [Eigenmath](https://github.com/georgeweigt/eigenmath) CAS engine
+- **zenodante**, author of the [PicoCalc MicroPython driver](https://github.com/zenodante/PicoCalc-micropython-driver) and the [Eigenmath MicroPython port](https://github.com/zenodante/eigenmath_micropython)
+- **LofiFren**, author of the [PicoCalc MicroPython drivers, terminal and apps](https://github.com/LofiFren/PicoCalc)
+- **Damien P. George and the MicroPython contributors**, for [MicroPython](https://micropython.org/)
+- **Raspberry Pi Ltd**, for the Pico 2 W and the Pico SDK
+- **ClockworkPi**, for the [PicoCalc](https://github.com/clockworkpi/PicoCalc) hardware
+
+SuperCALC is not affiliated with, sponsored by, or endorsed by any calculator manufacturer. PicoCalc and Raspberry Pi are trademarks of their respective owners.
