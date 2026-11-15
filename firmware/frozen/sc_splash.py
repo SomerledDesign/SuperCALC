@@ -1,7 +1,9 @@
-# SuperCalc.OG startup splash (frozen into the firmware, 20261114f).
+# SuperCalc.OG startup splash (frozen into the firmware since 20261114f; 20261115g push fix;
+# 20261115h data= for other splash images, e.g. the PicoCalc boot splash pc_splash.py).
 #
 #   import sc_splash; sc_splash.show()            # from main.py, before the menu
 #   sc_splash.show(timeout_ms=5000, sd=False)     # options
+#   sc_splash.show(data=some_module.DATA)          # another SCS1 image (no SD override)
 #
 # Draws a 320x320 16-colour SCS1 image (see tools/make_splash.py for the format)
 # straight into the LofiFren display framebuffer: the zlib stream is inflated row-chunk
@@ -18,13 +20,21 @@
 # ends it at once without consuming anything. Ctrl-C over USB still interrupts.
 # The VT terminal is detached while the splash is up (its cursor timer would draw on
 # it) and re-attached afterwards; os.dupterm is never touched.
+#
+# 20261115g: frames are pushed with picocalcdisplay.pushNow() when the firmware has it:
+# a synchronous push from core 0 that leaves core 1 auto-refresh running (core 1 is
+# never stopped or reset). At cold boot the core 1 refresh alone did not get the splash
+# onto the LCD. Older firmware falls back to display.show(). show() always ends with
+# auto-refresh running (skipUpdate cleared), so the menu and the VT terminal draw
+# normally afterwards. last["push"] / last["push_end"] record whether pushNow pushed,
+# last["c1_frames"] how many frames core 1 pushed while the splash was up.
 
 import gc
 import io
 import struct
 import time
 
-TIMEOUT_MS = 3000
+TIMEOUT_MS = 6400            # Kevin 2026-11-15: ~6.4 s; any key dismisses
 SD_PATH = "/sd/splash.scs"
 
 _W = 320
@@ -113,8 +123,36 @@ def _swallow(kb, ms=600):
         time.sleep_ms(10)
 
 
-def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None):
-    """Show the splash. Returns why it ended: 'key', 'timeout', 'usb', 'nodisplay' or 'error'."""
+def _push(d, info, key):
+    """Push the framebuffer now (pushNow, core 0) or fall back to d.show(). Never raises
+    for pushNow problems; afterwards auto-refresh is running again."""
+    try:
+        import picocalcdisplay
+        f = getattr(picocalcdisplay, "pushNow", None)
+        if f is not None:
+            ok = bool(f())
+            info[key] = ok
+            if ok:
+                return
+    except Exception as e:
+        info[key + "_error"] = repr(e)
+    d.show()                         # update(): clears skipUpdate (auto) or pushes (manual)
+
+
+def _frames():
+    try:
+        import picocalcdisplay
+        f = getattr(picocalcdisplay, "frames", None)
+        return f() if f is not None else None
+    except Exception:
+        return None
+
+
+def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None, data=None):
+    """Show the splash. Returns why it ended: 'key', 'timeout', 'usb', 'nodisplay' or 'error'.
+
+    data: SCS1 bytes (e.g. a frozen module's DATA) to show instead of the built-in
+    SuperCALC image; the /sd override is not used then. Default None: unchanged."""
     global last
     import picocalc
     import picocalcdisplay
@@ -152,7 +190,10 @@ def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None):
             pass
         d.beginDraw()
         pal = None
-        if sd and getattr(picocalc, "sd", None):
+        if data is not None:
+            pal = _draw(io.BytesIO(data), d.buffer)
+            info["source"] = "data"
+        elif sd and getattr(picocalc, "sd", None):
             f = None
             try:
                 f = open(sd_path or SD_PATH, "rb")
@@ -173,7 +214,8 @@ def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None):
         info["free_during"] = gc.mem_free()
         picocalcdisplay.setLUT(pal)
         lut_set = True
-        d.show()
+        _push(d, info, "push")
+        f0 = _frames()
 
         # wait for a key, USB input or the timeout
         t0 = time.ticks_ms()
@@ -190,6 +232,9 @@ def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None):
                     break
                 continue                     # stray release from before the splash
             time.sleep_ms(20)
+        f1 = _frames()
+        if f0 is not None and f1 is not None:
+            info["c1_frames"] = (f1 - f0) & 0x3FFFFFFF
         return reason
     except Exception as e:
         info["error"] = repr(e)
@@ -205,8 +250,11 @@ def show(timeout_ms=None, sd=True, sd_path=None, display=None, keyboard=None):
             if vt_detached:
                 import vtterminal
                 vtterminal.init(d.buffer)
-            d.show()
+            _push(d, info, "push_end")
         except Exception:
-            pass
+            try:
+                d.show()             # whatever failed above, never leave refresh held off
+            except Exception:
+                pass
         gc.collect()
         info["free_after"] = gc.mem_free()
